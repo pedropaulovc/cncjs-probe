@@ -199,6 +199,22 @@ test('without the homed checks, the clearance reason also points at an unset Sen
     }
 });
 
+test('the default sensor location counts as unset on every path, so Safe Z is never checked against it', () => {
+    const settings = defaultSettings();
+    assert.deepEqual(settings.toolChangePosition, { x: 0, y: 0, z: 0 });
+    for (const [reported, zRange] of [[{ $22: '0', $132: '356' }, 'grbl'], [{ $132: '356' }, 'grbl'], [{ $22: '1', $132: '356' }, 'other'], [{ $22: '1', $132: '356' }, 'grbl']]) {
+        setControllerSettings({ settings: reported });
+        for (const safeZ of [-10, 2, 50]) {
+            const routine = toolLengthRoutine({ ...settings, zRange, safeZ });
+            assert.equal(routine.reason, 'Set the sensor location first. Jog the tool tip just above the sensor and use "Use current position".', `${JSON.stringify(reported)} ${zRange} ${safeZ}`);
+            assert.equal(routine.start, undefined);
+        }
+    }
+    // any captured axis makes it a real location
+    setControllerSettings({ settings: { $22: '0', $132: '356' } });
+    assert.ok(toolLengthRoutine({ ...settings, toolChangePosition: { x: 0, y: 0, z: -30 } }).start);
+});
+
 test('Safe Z checks only the sensor without homing or when the operator picks another Z range', () => {
     // homing off or unreported: Z0 is wherever Z was at power-on
     for (const reported of [{ $22: '0', $132: '100' }, { $132: '100' }]) {

@@ -258,7 +258,12 @@ const checkHomedSafeZ = (safeZ, sensorZ, reported) => {
 export const toolLengthRoutine = (settings) => {
     const position = settings.toolChangePosition;
     if (![position.x, position.y, position.z].every(Number.isFinite)) {
-        return { reason: 'Set the sensor location first.' };
+        return { reason: `Set the sensor location first. ${SET_SENSOR}` };
+    }
+    // the default {0, 0, 0} is a placeholder, never a captured sensor: with homing
+    // off, Safe Z checked against it would allow moves above the power-on height
+    if (['x', 'y', 'z'].every((axis) => position[axis] === DEFAULT_TOOL_CHANGE_POSITION[axis])) {
+        return { reason: `Set the sensor location first. ${SET_SENSOR}` };
     }
     const captured = [];
     const wizard = createWizard({

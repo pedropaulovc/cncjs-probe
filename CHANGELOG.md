@@ -10,7 +10,9 @@
   Machine Z range setting (Grbl / Other) replaces guessing from positions: with
   homing off or Other, only the sensor clearance is checked, and a note next to
   the wizard buttons says so. A sensor Z with no room above it is reported as a
-  sensor problem, and a positive one points at Machine Z range.
+  sensor problem, and a positive one points at Machine Z range. The default
+  sensor location (0, 0, 0) counts as unset, so tool length asks for the sensor
+  before checking Safe Z against it.
 - The Settings and G-code sections show a disclosure triangle, a pointer cursor
   and a keyboard focus outline under CNCjs's stylesheet, whose Bootstrap 3
   normalize hides the browser's own marker. The Machine Z range select is as

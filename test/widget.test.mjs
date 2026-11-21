@@ -246,10 +246,13 @@ test('tool length mode previews gSender\'s wizard steps', async () => {
     const { ctx, page, errors } = await standalone();
     try {
         await page.getByRole('button', { name: 'Tool length', exact: true }).click();
+        // the default sensor location is a placeholder
+        assert.match(await page.locator('#code-note').innerText(), /Set the sensor location first\. Jog the tool tip/);
+        assert.match(await page.locator('#tl-note').innerText(), /Set the sensor location first/);
+        await page.getByLabel('Sensor Z').fill('-30');
         assert.match(await page.locator('#code-note').innerText(), /Z max travel/);
         await page.getByText('Settings', { exact: true }).click();
         await page.getByLabel('Z max travel ($132)').fill('120');
-        await page.getByLabel('Sensor Z').fill('-30');
         const code = await page.locator('#gcode').innerText();
         assert.match(code, /%global\.toolchange\.PROBE_DISTANCE=88\.000/);
         assert.match(code, /%global\.toolchange\.TOOL_OFFSET=posz/);
