@@ -45,9 +45,15 @@ length; without `$22` the Z probe distance is not limited by soft limits, and
 without `$13` positions are taken as mm.
 
 Tool length travels between sensor and work at **Safe Z**, a machine Z in mm
-(default -10, gSender's metric value). It must sit at least the homing pull-off
-(`$27`, or 1 mm when unreported) below machine Z0, so the move never runs back
-into the Z limit switch.
+(default -10, gSender's metric value). It must be at least 2 mm above the
+sensor Z. With **Machine Z range** on **Grbl** (the default) and homing on
+(`$22` bit 0, so grblHAL's `3`/`5`/`7` count), machine Z runs from `-$132` up to
+0. Safe Z must then stay inside Z travel and the homing pull-off (`$27`, or 1 mm
+when unreported) away from the Z switch: below Z0 when Z homes up (the default),
+above `-$132` when `$23` says it homes down. A sensor Z that leaves no room for
+that is reported as a sensor problem. With homing off, or **Other** picked for a
+setup whose machine Z is positive (FluidNC with a positive `mpos_mm`), only the
+sensor clearance is checked, and a note next to the wizard buttons says so.
 
 ## Safety
 

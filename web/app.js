@@ -333,18 +333,19 @@ function renderToolLength(routine) {
         input.value = Number.isFinite(v) ? String(v) : '';
         input.removeAttribute('aria-invalid');
     }
+    if (document.activeElement !== $('tl-zrange')) $('tl-zrange').value = settings.zRange === 'other' ? 'other' : 'grbl';
     const ok = clickable() && !routine.reason;
     $('tl-here').disabled = machine.link !== 'joined' || !machine.mpos || machine.mpos.z === undefined;
     $('tl-start').disabled = !ok || ui.toolLength !== 'ready';
     $('tl-cancel').disabled = ui.toolLength === 'ready';
     $('tl-probe').disabled = !ok || ui.toolLength === 'ready' || ui.connectivity !== 'confirmed';
     $('tl-resume').disabled = !ok || ui.toolLength !== 'probed';
-    const note = routine.reason
-        ?? (ui.toolLength === 'ready' ? 'Start stores the current position and spindle state, stops the spindle and raises Z.'
-            : ui.toolLength === 'started' && ui.connectivity !== 'confirmed' ? 'Touch the toolsetter to check its circuit, then probe.'
-                : ui.toolLength === 'started' ? 'Probe moves to the sensor and measures the tool.'
-                    : 'Tool length stored as global.toolchange.TOOL_OFFSET. Resume returns to where you started.');
-    $('tl-note').textContent = note;
+    const step = ui.toolLength === 'ready' ? 'Start stores the current position and spindle state, stops the spindle and raises Z.'
+        : ui.toolLength === 'started' && ui.connectivity !== 'confirmed' ? 'Touch the toolsetter to check its circuit, then probe.'
+            : ui.toolLength === 'started' ? 'Probe moves to the sensor and measures the tool.'
+                : 'Tool length stored as global.toolchange.TOOL_OFFSET. Resume returns to where you started.';
+    // a skipped switch check is said next to the buttons, not only in the preview
+    $('tl-note').textContent = routine.reason ?? [routine.note, step].filter(Boolean).join(' ');
 }
 
 function render() {
@@ -408,7 +409,7 @@ function renderCode(zero, toolLength) {
         setText($('gcode'), zero.lines ? zero.lines.join('\n') : '');
         return;
     }
-    setText($('code-note'), toolLength.reason ?? 'Each step sends its block. G-code expressions are evaluated by CNCjs.');
+    setText($('code-note'), toolLength.reason ?? ['Each step sends its block. G-code expressions are evaluated by CNCjs.', toolLength.note].filter(Boolean).join(' '));
     if (toolLength.reason) {
         setText($('gcode'), '');
         return;
@@ -523,6 +524,7 @@ document.querySelectorAll('[data-tl]').forEach((input) => input.addEventListener
     update(withTlValue(input.dataset.tl, n));
 }));
 document.querySelectorAll('[data-tl]').forEach((input) => input.addEventListener('focusout', () => render()));
+$('tl-zrange').addEventListener('change', (e) => update({ ...settings, zRange: e.target.value }));
 $('tl-here').addEventListener('click', () => {
     // status MPos is in report units: inches when $13=1
     const scale = reported().$13 === '1' ? 25.4 : 1;

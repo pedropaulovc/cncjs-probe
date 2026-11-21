@@ -151,6 +151,8 @@ test('reporting inches ($13=1), BitZero leaves the machine in the units it found
             const sent = feed(controller, lines);
             assertPlainGcode(sent, `BitZero ${command} ${modalUnits}`);
             assert.equal(sent.at(-1).line, modalUnits, `BitZero ${command} on ${modalUnits} ends ${sent.at(-1).line}`);
+            // gcodeSafe already puts a G20 machine back: no second restore
+            assert.notEqual(lines.at(-2), modalUnits, `BitZero ${command} on ${modalUnits} restores units twice`);
         }
     }
 });
@@ -204,7 +206,7 @@ test('the tool length steps evaluate to plain G-code in CNCjs, sharing global.to
 
 test('without the widget\'s context CNCjs would leave Resume\'s feed rate unresolved', () => {
     setControllerSettings({ settings: { $132: '120' } });
-    const routine = toolLengthRoutine({ ...defaultSettings(), toolChangePosition: { x: 0, y: 0, z: -10 } });
+    const routine = toolLengthRoutine({ ...defaultSettings(), toolChangePosition: { x: 0, y: 0, z: -30 } });
     const controller = fakeController();
     feed(controller, routine.start);
     const resume = feed(controller, routine.resume);
