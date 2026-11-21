@@ -11,7 +11,9 @@ plates, routines and settings, and the same G-code, run by CNCjs instead.
   and BitZero).
 - Tool length: probes the current tool on a fixed sensor at a machine position
   and stores the result in CNCjs as `global.toolchange.TOOL_OFFSET`, like
-  gSender's tool length wizard.
+  gSender's tool length wizard. It does not use a touch plate, so the plate
+  selector and plate settings are hidden in that mode; to set work Z from a
+  plate, use Zero → Z Probe.
 - The G-code that will run is shown before you start it. Routines run in the
   machine's units (G20 or G21), and settings are kept in the browser.
 

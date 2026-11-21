@@ -112,7 +112,7 @@ details > summary:focus-visible { outline: 2px solid #66afe9; outline-offset: 2p
     </div>
   </div>
 
-  <div class="row">
+  <div class="row" id="plate-row">
     <label for="plate" class="lbl">Touch plate</label>
     <select id="plate" class="form-control grow"></select>
   </div>
@@ -149,7 +149,6 @@ details > summary:focus-visible { outline: 2px solid #66afe9; outline-offset: 2p
     <div class="figure" style="margin-top:6px"><img id="probe-image" alt="Probe Block orientation guide image" width="120" height="120"></div>
     <div class="row" style="margin-top:6px">
       <button type="button" class="btn btn-primary grow" id="probe-open">Probe</button>
-      <button type="button" class="btn btn-danger" id="stop" hidden>Stop</button>
     </div>
 
     <div class="panel" id="run" role="dialog" aria-labelledby="run-title" hidden style="margin-top:8px">
@@ -170,6 +169,7 @@ details > summary:focus-visible { outline: 2px solid #66afe9; outline-offset: 2p
 
   <section id="tool-length" aria-label="Tool length" hidden>
     <p class="text-muted" style="margin:0;font-size:12px">Probes the current tool on a fixed sensor (toolsetter) at a machine position and stores the result in CNCjs as <code>global.toolchange.TOOL_OFFSET</code>, like gSender's tool length wizard. Turn the spindle off first.</p>
+    <p class="text-muted" id="tl-help" style="margin:0;font-size:12px">This targets a fixed toolsetter at the Sensor position below, not a touch plate. To set work Z from a plate, use <strong>Zero → Z Probe</strong>.</p>
     <div class="fields">
       <label for="tl-x">Sensor X <span class="unit">(mm, machine)</span></label><input id="tl-x" class="form-control" inputmode="decimal" data-tl="x">
       <label for="tl-y">Sensor Y <span class="unit">(mm, machine)</span></label><input id="tl-y" class="form-control" inputmode="decimal" data-tl="y">
@@ -190,6 +190,9 @@ details > summary:focus-visible { outline: 2px solid #66afe9; outline-offset: 2p
     </div>
     <p class="text-muted" id="tl-note" style="margin:6px 0 0;font-size:12px"></p>
   </section>
+
+  <!-- Stops whatever routine the feeder is running, from either mode -->
+  <button type="button" class="btn btn-danger" id="stop" hidden>Stop</button>
 
   <p class="message" id="message" aria-live="polite" hidden></p>
 

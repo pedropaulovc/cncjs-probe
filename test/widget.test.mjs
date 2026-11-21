@@ -526,3 +526,60 @@ test('framed by CNCjs from another origin, the widget explains it cannot probe',
         await ctx.close();
     }
 });
+
+test('tool length mode hides the touch plate and Zero-only controls, and Zero brings them back', async () => {
+    const { ctx, page, errors } = await standalone();
+    try {
+        await page.getByText('Settings', { exact: true }).click();
+        const fields = () => page.locator('#fields label').allInnerTexts();
+        const zeroOnly = () => Promise.all([
+            page.getByLabel('Touch plate'),
+            page.getByRole('group', { name: 'Probing routine' }),
+            page.getByRole('group', { name: 'Corner' }),
+            page.locator('#probe-image'),
+            page.getByRole('button', { name: 'Probe', exact: true }),
+        ].map((el) => el.isVisible()));
+        const zeroFields = await fields();
+        assert.deepEqual(await zeroOnly(), [true, true, true, true, true]);
+        assert.ok(zeroFields.includes('Block thickness (mm)'), zeroFields.join());
+
+        for (const plate of ['Standard Block', 'Z Probe', '3D Probe', 'AutoZero', 'BitZero']) {
+            await page.getByLabel('Touch plate').selectOption(plate);
+            await page.getByRole('button', { name: 'Tool length', exact: true }).click();
+            assert.deepEqual(await zeroOnly(), [false, false, false, false, false], plate);
+            // only the settings the wizard reads: its feeds, retraction and the $132 stand-in
+            assert.deepEqual(await fields(), ['Fast find (mm/min)', 'Slow find (mm/min)', 'Retraction (mm)', 'Z max travel ($132) (mm)'], plate);
+            assert.equal(await page.getByRole('button', { name: 'Tool length', exact: true }).getAttribute('aria-pressed'), 'true');
+            assert.match(await page.locator('#tl-help').innerText(), /fixed toolsetter at the Sensor position.*Zero → Z Probe/s);
+            // the connection test still gates the wizard's probe step
+            assert.equal(await page.getByLabel('Connection test').isVisible(), true);
+            await page.getByRole('button', { name: 'Zero', exact: true }).click();
+            assert.equal(await page.getByLabel('Touch plate').inputValue(), plate);
+        }
+        await page.getByLabel('Touch plate').selectOption('Standard Block');
+        assert.deepEqual(await zeroOnly(), [true, true, true, true, true]);
+        assert.deepEqual(await fields(), zeroFields);
+        assert.equal(await page.locator('#tl-help').isVisible(), false);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('embedded in CNCjs, Stop shows in tool length mode while the feeder runs', async () => {
+    const { ctx, w, fire, emitted, errors } = await embedded({ settings: { settings: { $132: '120' } } });
+    try {
+        await w.getByRole('button', { name: 'Tool length', exact: true }).click();
+        const stop = w.getByRole('button', { name: 'Stop', exact: true });
+        assert.equal(await stop.isVisible(), false);
+        await fire('feeder:status', { hold: false, queue: 12, pending: true });
+        assert.equal(await stop.isVisible(), true);
+        await stop.click();
+        assert.ok((await emitted()).some((e) => e[0] === 'command' && e[2] === 'feeder:stop'));
+        await fire('feeder:status', { hold: false, queue: 0, pending: false });
+        assert.equal(await stop.isVisible(), false);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});

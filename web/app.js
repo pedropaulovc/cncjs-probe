@@ -120,14 +120,17 @@ const probeSetting = (key) => ({
     set: (s, v) => ({ ...s, probe: { ...s.probe, [key]: v } }),
 });
 // kind: 'len' (mm, shown in machine units) | 'feed' (mm/min) | 'mm' (always mm)
+// hidden(plate, mode): in Tool length mode only what the wizard reads stays:
+// Fast find, Slow find, Retraction and Z max travel. Its only plate value,
+// PROBE_THICKNESS_MM, is stored for later macros but not used by its G-code.
 const FIELDS = [
     { id: 'tipDiameter3D', label: 'Tip diameter', kind: 'len', ...probeSetting('tipDiameter3D'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_3D, title: 'Diameter of probe tip where it touches off the material. (Default 2)' },
-    { id: 'standardBlock', label: 'Block thickness', kind: 'len', ...zThickness('standardBlock'), hidden: (p) => p !== TOUCHPLATE_TYPE_STANDARD, title: 'Plate thickness where the bit touches when Z-axis probing using the Standard Block plate. (Default 15)' },
-    { id: 'autoZero', label: 'AutoZero thickness', kind: 'len', ...zThickness('autoZero'), hidden: (p) => p !== TOUCHPLATE_TYPE_AUTOZERO, title: 'Plate thickness where the bit touches when Z-axis probing using the AutoZero plate. (Default 5)' },
-    { id: 'zProbe', label: 'Puck thickness', kind: 'len', ...zThickness('zProbe'), hidden: (p) => p !== TOUCHPLATE_TYPE_ZERO, title: 'Plate thickness where the bit touches when Z-axis probing when using the Z Probe plate. (Default 15)' },
-    { id: 'probe3D', label: 'Z offset', kind: 'len', range: 'any', ...zThickness('probe3D'), hidden: (p) => p !== TOUCHPLATE_TYPE_3D, title: 'Adjust to improve the Z zeroing accuracy of your probe. (Default 0)' },
-    { id: 'bitZero', label: 'BitZero thickness (XYZ)', kind: 'len', ...zThickness('bitZero'), hidden: (p) => p !== TOUCHPLATE_TYPE_BITZERO, title: 'Plate thickness for XYZ probing where the bit touches the inset surface inside the bore. (Default 13)' },
-    { id: 'bitZeroZOnly', label: 'BitZero thickness (Z-only)', kind: 'len', ...zThickness('bitZeroZOnly'), hidden: (p) => p !== TOUCHPLATE_TYPE_BITZERO, title: 'Plate thickness for Z-only probing where the probe is placed flat on the surface. (Default 15.5)' },
+    { id: 'standardBlock', label: 'Block thickness', kind: 'len', ...zThickness('standardBlock'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_STANDARD, title: 'Plate thickness where the bit touches when Z-axis probing using the Standard Block plate. (Default 15)' },
+    { id: 'autoZero', label: 'AutoZero thickness', kind: 'len', ...zThickness('autoZero'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_AUTOZERO, title: 'Plate thickness where the bit touches when Z-axis probing using the AutoZero plate. (Default 5)' },
+    { id: 'zProbe', label: 'Puck thickness', kind: 'len', ...zThickness('zProbe'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_ZERO, title: 'Plate thickness where the bit touches when Z-axis probing when using the Z Probe plate. (Default 15)' },
+    { id: 'probe3D', label: 'Z offset', kind: 'len', range: 'any', ...zThickness('probe3D'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_3D, title: 'Adjust to improve the Z zeroing accuracy of your probe. (Default 0)' },
+    { id: 'bitZero', label: 'BitZero thickness (XYZ)', kind: 'len', ...zThickness('bitZero'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_BITZERO, title: 'Plate thickness for XYZ probing where the bit touches the inset surface inside the bore. (Default 13)' },
+    { id: 'bitZeroZOnly', label: 'BitZero thickness (Z-only)', kind: 'len', ...zThickness('bitZeroZOnly'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_BITZERO, title: 'Plate thickness for Z-only probing where the probe is placed flat on the surface. (Default 15.5)' },
     { id: 'xyThickness', label: 'XY thickness', kind: 'len', get: (s) => s.probeProfile.xyThickness, set: (s, v) => ({ ...s, probeProfile: { ...s.probeProfile, xyThickness: v } }), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_STANDARD, title: 'Plate thickness where the bit touches when X/Y-axis probing. (Default 10)' },
     { id: 'xyRetract3D', label: 'XY retract', kind: 'len', ...probeSetting('xyRetract3D'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_3D, title: 'How much extra to move off the surface when probing. (Default 10)' },
     { id: 'zProbeDistance', label: 'Z probe distance', kind: 'len', ...probeSetting('zProbeDistance'), hidden: (p, mode) => mode !== 'zero' || offersAutoAndTip(p), title: 'Movement in Z before it gives up on probing. (Reduce this value if you get a soft limit alarm 2 when probing, Default 30)' },
@@ -368,6 +371,8 @@ function render() {
     $('touch-text').textContent = portReady() ? TOUCH_LABELS[machine.touch] : 'No device connected';
     $('connectivity-test').checked = Boolean(settings.probe.connectivityTest);
 
+    // Tool length probes a fixed toolsetter: the plate and its routines do not apply
+    $('plate-row').hidden = settings.mode !== 'zero';
     $('zero').hidden = settings.mode !== 'zero';
     $('tool-length').hidden = settings.mode !== 'toolLength';
 
