@@ -256,6 +256,21 @@ test('embedded in CNCjs, the probe input shows as Probe and Run waits for an idl
     }
 });
 
+test('embedded in CNCjs, status reports leave the dropdowns alone', async () => {
+    const { ctx, w, fire, errors } = await embedded();
+    try {
+        await w.getByRole('button', { name: 'XYZ', exact: true }).click();
+        const marked = () => w.locator('#diameter option, #plate option').evaluateAll((els) => els.map((el) => el.dataset.mark));
+        await w.locator('#diameter option, #plate option').evaluateAll((els) => els.forEach((el, i) => { el.dataset.mark = String(i); }));
+        const before = await marked();
+        for (const pinState of ['P', '', 'T']) await fire('controller:state', 'Grbl', grblState({ pinState }));
+        assert.deepEqual(await marked(), before);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
+
 test('embedded in CNCjs, routines follow the machine\'s G20', async () => {
     const { ctx, w, fire, errors } = await embedded();
     try {

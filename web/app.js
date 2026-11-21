@@ -273,6 +273,9 @@ const diameterValue = () => {
     if (settings.probeType === PROBE_TYPE_AUTO || settings.probeType === PROBE_TYPE_TIP) return settings.probeType;
     return settings.tool ? String(settings.tool[diameterKey()]) : '';
 };
+// Rebuilt only when the list changes: CNCjs status reports re-render several
+// times a second, and replacing the options would close an open dropdown.
+let diameterOptionsKey = '';
 function renderDiameter() {
     const plate = settings.probeProfile.touchplateType;
     const options = toolDiameterOptions(settings.tools, units(), plate);
@@ -280,13 +283,17 @@ function renderDiameter() {
     // the selected tool may have been removed from the list
     if (value && !options.some((o) => o.value === value)) options.push({ value, label: value, tool: settings.tool });
     const select = $('diameter');
-    select.replaceChildren(...options.map((o) => {
-        const opt = document.createElement('option');
-        opt.value = o.value;
-        opt.textContent = o.tool ? `${o.label} ${units()}` : o.label;
-        return opt;
-    }));
-    select.value = value;
+    const key = `${units()}|${options.map((o) => o.value).join(',')}`;
+    if (key !== diameterOptionsKey) {
+        diameterOptionsKey = key;
+        select.replaceChildren(...options.map((o) => {
+            const opt = document.createElement('option');
+            opt.value = o.value;
+            opt.textContent = o.tool ? `${o.label} ${units()}` : o.label;
+            return opt;
+        }));
+    }
+    if (select.value !== value) select.value = value;
     $('diameter-new').placeholder = `Custom diameter (${units()})`;
     const deletable = options.length > 1 && settings.tools.some((t) => String(t[diameterKey()]) === value);
     $('diameter-delete').disabled = !deletable;
@@ -340,7 +347,7 @@ function render() {
     if (!select.options.length) {
         select.replaceChildren(...PLATE_TYPES.map((t) => new Option(t, t)));
     }
-    select.value = plate;
+    if (select.value !== plate) select.value = plate;
 
     const touch = $('touch');
     touch.dataset.touch = machine.touch;
