@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Probe</title>
+<!--
+  cncjs-probe: touch plate and tool length probing for CNCjs, ported from gSender's Probe tool.
+  Copyright (C) 2025 Sienci Labs Inc. (gSender) and Pedro Paulo Vezza Campos (cncjs-probe).
+  Licensed under the GNU General Public License v3.0; see LICENSE.
+-->
+<!-- Stands in for CNCjs's stylesheet (Bootstrap 3.3.7) when the page is opened on its own.
+     Served by CNCjs, the widget links CNCjs's own stylesheet and drops this one. -->
+<style id="cncjs-fallback">
+body { margin: 0; font: 13px/1.42857 Arial, "Helvetica Neue", Helvetica, sans-serif; color: #222; background: #fff; }
+.btn { display: inline-block; margin: 0; padding: 6px 12px; font: inherit; font-size: 13px; line-height: 1.42857; text-align: center; white-space: nowrap; vertical-align: middle; cursor: pointer; user-select: none; border: 1px solid transparent; border-radius: 4px; }
+.btn-sm { padding: 5px 10px; font-size: 12px; line-height: 1.5; border-radius: 3px; }
+.btn-default { color: #333; background: #fff; border-color: #ccc; }
+.btn-default:hover { background: #e6e6e6; border-color: #adadad; }
+.btn-default.active { background: #e6e6e6; border-color: #adadad; box-shadow: inset 0 3px 5px rgba(0, 0, 0, .125); }
+.btn-primary { color: #fff; background: #337ab7; border-color: #2e6da4; }
+.btn-primary:hover { background: #286090; border-color: #204d74; }
+.btn-danger { color: #fff; background: #d9534f; border-color: #d43f3a; }
+.btn:disabled { cursor: not-allowed; opacity: .65; box-shadow: none; }
+.btn-group { position: relative; display: inline-block; vertical-align: middle; }
+.btn-group > .btn { position: relative; float: left; }
+.btn-group > .btn + .btn { margin-left: -1px; }
+.btn-group > .btn:hover, .btn-group > .btn.active { z-index: 2; }
+.btn-group > .btn:not(:first-child):not(:last-child) { border-radius: 0; }
+.btn-group > .btn:first-child:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.btn-group > .btn:last-child:not(:first-child) { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.form-control { display: block; width: 100%; height: 30px; padding: 4px 8px; font: inherit; font-size: 13px; color: #555; background: #fff; border: 1px solid #ccc; border-radius: 4px; }
+.alert { padding: 15px; border: 1px solid transparent; border-radius: 4px; }
+.alert-success { color: #3c763d; background: #dff0d8; border-color: #d6e9c6; }
+.alert-info { color: #31708f; background: #d9edf7; border-color: #bce8f1; }
+.alert-warning { color: #8a6d3b; background: #fcf8e3; border-color: #faebcc; }
+.alert-danger { color: #a94442; background: #f2dede; border-color: #ebccd1; }
+.text-muted { color: #777; }
+pre { display: block; padding: 9.5px; font: 12px/1.42857 Menlo, Monaco, Consolas, "Courier New", monospace; color: #333; background: #f5f5f5; border: 1px solid #ccc; border-radius: 4px; }
+</style>
+<style>
+:root { --ink: #222; --ink-2: #777; --rule: #ccc; --ok: #3c9a3c; --off: #c9302c; --font-num: Menlo, Monaco, Consolas, "Courier New", monospace; }
+* { box-sizing: border-box; }
+/* Bootstrap's .btn display outranks the hidden attribute */
+[hidden] { display: none !important; }
+html, body { overflow-x: clip; }
+/* CNCjs's stylesheet gives its own page a 960 px minimum width */
+body { min-width: 0; }
+/* 340 px is a CNCjs sidebar (360 px less its padding) */
+.app { max-width: 340px; margin: 0 auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+html[data-embedding="standalone"] body { background: #f6f7f8; }
+html[data-embedding="standalone"] .app { margin: 16px auto; background: #fff; border: 1px solid var(--rule); }
+header h1 { margin: 0; font-size: 13px; font-weight: bold; line-height: 1.4; }
+.status { margin: 2px 0 0; font-size: 12px; color: var(--ink-2); }
+.row { display: flex; align-items: center; gap: 6px; }
+.row > label { margin: 0; font-weight: normal; }
+.grow { flex: 1 1 auto; min-width: 0; }
+.seg { display: flex; width: 100%; }
+.seg > .btn { flex: 1 1 0; min-width: 0; padding-left: 4px; padding-right: 4px; }
+.lbl { font-size: 12px; color: var(--ink-2); margin: 0 0 2px; white-space: nowrap; }
+#gcode:empty { display: none; }
+.touch { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.lamp { width: 14px; height: 14px; border-radius: 50%; background: var(--off); flex: none; }
+.touch[data-touch="probe"] .lamp, .touch[data-touch="toolsetter"] .lamp, .touch[data-touch="both"] .lamp { background: var(--ok); }
+.touch[data-link="off"] .lamp { background: #bbb; }
+.figure { display: flex; justify-content: center; }
+.figure img { width: 120px; height: auto; }
+.panel { border: 1px solid var(--rule); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.panel h2 { margin: 0; font-size: 13px; font-weight: bold; }
+.panel p, .panel ol { margin: 0; font-size: 12px; }
+.panel ol { padding-left: 18px; }
+.alert { margin: 0; padding: 6px 8px; font-size: 12px; }
+.fields { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 4px 8px; align-items: center; margin-top: 6px; }
+.fields label { margin: 0; font-weight: normal; font-size: 12px; }
+.fields .unit { color: var(--ink-2); }
+.fields input[aria-invalid="true"] { border-color: #a94442; background: #f2dede; }
+.fields input { text-align: right; font-family: var(--font-num); height: 26px; padding: 2px 6px; }
+details > summary { cursor: pointer; font-weight: bold; font-size: 13px; }
+.diam { display: flex; gap: 4px; }
+.diam .form-control { height: 28px; padding: 2px 6px; }
+.code pre { max-height: 220px; margin: 6px 0 0; overflow: auto; padding: 6px 8px; font-size: 11.5px; line-height: 1.45; white-space: pre; }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.steps .btn { white-space: normal; padding-left: 4px; padding-right: 4px; }
+.message { font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Probe</h1>
+    <p class="status" id="status" aria-live="polite"></p>
+  </header>
+
+  <div class="btn-group seg" role="group" aria-label="Mode">
+    <button type="button" class="btn btn-default btn-sm" data-mode="zero">Zero</button>
+    <button type="button" class="btn btn-default btn-sm" data-mode="toolLength">Tool length</button>
+  </div>
+
+  <div class="row" id="units-row" hidden>
+    <span class="lbl">Preview units</span>
+    <div class="btn-group" role="group" aria-label="Preview units">
+      <button type="button" class="btn btn-default btn-sm" data-units="mm">mm</button>
+      <button type="button" class="btn btn-default btn-sm" data-units="in">inch</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <label for="plate" class="lbl">Touch plate</label>
+    <select id="plate" class="form-control grow"></select>
+  </div>
+
+  <div class="row">
+    <div class="touch grow" id="touch" data-testid="touch-status" data-touch="none" aria-live="polite">
+      <span class="lamp" aria-hidden="true"></span><span id="touch-text">No touch</span>
+    </div>
+    <label class="row"><input type="checkbox" id="connectivity-test"> Connection test</label>
+  </div>
+
+  <section id="zero" aria-label="Zero">
+    <div class="btn-group seg" id="commands" role="group" aria-label="Probing routine"></div>
+    <div class="row" id="corner-row" style="margin-top:6px">
+      <span class="lbl">Corner</span>
+      <div class="btn-group seg grow" id="corners" role="group" aria-label="Corner">
+        <button type="button" class="btn btn-default btn-sm" data-direction="0" title="Bottom Left">BL</button>
+        <button type="button" class="btn btn-default btn-sm" data-direction="1" title="Top Left">TL</button>
+        <button type="button" class="btn btn-default btn-sm" data-direction="2" title="Top Right">TR</button>
+        <button type="button" class="btn btn-default btn-sm" data-direction="3" title="Bottom Right">BR</button>
+      </div>
+    </div>
+    <div id="diameter-row" style="margin-top:6px">
+      <label for="diameter" class="lbl">Tool diameter</label>
+      <div class="diam">
+        <select id="diameter" class="form-control grow"></select>
+        <button type="button" class="btn btn-default btn-sm" id="diameter-delete" title="Remove this diameter from the list">Remove</button>
+      </div>
+      <div class="diam" style="margin-top:4px">
+        <input id="diameter-new" class="form-control grow" inputmode="decimal" aria-label="Custom diameter">
+        <button type="button" class="btn btn-default btn-sm" id="diameter-add">Add</button>
+      </div>
+    </div>
+    <div class="figure" style="margin-top:6px"><img id="probe-image" alt="Probe Block orientation guide image" width="120" height="120"></div>
+    <div class="row" style="margin-top:6px">
+      <button type="button" class="btn btn-primary grow" id="probe-open">Probe</button>
+      <button type="button" class="btn btn-danger" id="stop" hidden>Stop</button>
+    </div>
+
+    <div class="panel" id="run" role="dialog" aria-labelledby="run-title" hidden style="margin-top:8px">
+      <h2 id="run-title">Probe</h2>
+      <div class="alert alert-warning" id="direction-warning" role="alert" hidden></div>
+      <ol>
+        <li>Check the tool is positioned correctly (pictured).</li>
+        <li id="step-circuit"></li>
+        <li id="step-hold">In some cases, holding the touch plate still while probing will give a more consistent measurement.</li>
+      </ol>
+      <p class="text-muted" id="circuit-wait">Waiting for probe circuit check...</p>
+      <div class="row">
+        <button type="button" class="btn btn-primary grow" id="probe-start" disabled>Start probe</button>
+        <button type="button" class="btn btn-default" id="probe-cancel">Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tool-length" aria-label="Tool length" hidden>
+    <p class="text-muted" style="margin:0;font-size:12px">Probes the current tool on a fixed sensor (toolsetter) at a machine position and stores the result in CNCjs as <code>global.toolchange.TOOL_OFFSET</code>, like gSender's tool length wizard. Turn the spindle off first.</p>
+    <div class="fields">
+      <label for="tl-x">Sensor X <span class="unit">(mm, machine)</span></label><input id="tl-x" class="form-control" inputmode="decimal" data-tlpos="x">
+      <label for="tl-y">Sensor Y <span class="unit">(mm, machine)</span></label><input id="tl-y" class="form-control" inputmode="decimal" data-tlpos="y">
+      <label for="tl-z">Sensor Z <span class="unit">(mm, machine)</span></label><input id="tl-z" class="form-control" inputmode="decimal" data-tlpos="z">
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button type="button" class="btn btn-default btn-sm" id="tl-here">Use current position</button>
+    </div>
+    <div class="steps" style="margin-top:8px">
+      <button type="button" class="btn btn-primary" id="tl-start">Start</button>
+      <button type="button" class="btn btn-primary" id="tl-probe" disabled>Probe tool length</button>
+      <button type="button" class="btn btn-primary" id="tl-resume" disabled>Resume</button>
+    </div>
+    <p class="text-muted" id="tl-note" style="margin:6px 0 0;font-size:12px"></p>
+  </section>
+
+  <p class="message" id="message" aria-live="polite" hidden></p>
+
+  <details id="settings">
+    <summary>Settings</summary>
+    <div class="fields" id="fields"></div>
+  </details>
+
+  <details class="code" id="code" open>
+    <summary>G-code</summary>
+    <p class="status" id="code-note"></p>
+    <pre id="gcode" aria-label="G-code to send"></pre>
+  </details>
+</div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
