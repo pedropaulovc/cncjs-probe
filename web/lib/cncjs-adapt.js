@@ -16,3 +16,7 @@ export const positionsInMm = (lines, $13) => {
     if ($13 !== '1') return lines;
     return lines.map((line) => (typeof line === 'string' && line.startsWith('%') ? line.replace(POSITION, '(pos$1 * 25.4)') : line));
 };
+
+// -> the lines between capturing the machine's units mode before anything runs
+// and setting it again at the end, for routines that leave a different mode.
+export const restoringUnits = (lines) => ['%UNITS=modal.units', ...lines, '[UNITS]'];

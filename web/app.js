@@ -26,6 +26,7 @@ import {
     toolchangeContext,
     unitsOf,
     withDiameterChoice,
+    withoutTool,
     withPlateType,
     zeroRoutine,
 } from './lib/model.js';
@@ -136,7 +137,7 @@ const FIELDS = [
     { id: 'probeMovementSpeed', label: 'Probe Movement Speed', kind: 'feed', range: 'nonNegative', ...probeSetting('probeMovementSpeed'), hidden: (p, mode) => mode !== 'zero' || p === TOUCHPLATE_TYPE_BITZERO, title: 'Feed rate for retract/reposition moves during probing. If 0, these moves use rapid (G0). If set, they use a controlled feed move (G1) at this speed instead. (Default 0)' },
     { id: 'zRetractNormal', label: 'Final Z retract', kind: 'len', min: 1, ...probeSetting('zRetractNormal'), hidden: (p, mode) => mode !== 'zero' || offersAutoAndTip(p), title: 'How far to move away in the Z-axis at the end of the routine. (Default 2)' },
     { id: 'zRetractAuto', label: 'Final Z retract', kind: 'len', min: 1, ...probeSetting('zRetractAuto'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_AUTOZERO, title: 'How far to move away in the Z-axis at the end of the routine. (Default 1)' },
-    { id: 'zMaxTravel', label: 'Z max travel ($132)', kind: 'mm', optional: true, get: (s) => s.zMaxTravel, set: (s, v) => ({ ...s, zMaxTravel: v }), hidden: () => reported().$132 !== undefined, title: 'Your controller does not report $132 (FluidNC does not). Z travel from home to the bottom, used to limit probe moves like gSender does.' },
+    { id: 'zMaxTravel', label: 'Z max travel ($132)', kind: 'mm', optional: true, get: (s) => s.zMaxTravel, set: (s, v) => ({ ...s, zMaxTravel: v }), hidden: () => reported().$132 !== undefined, title: 'Your controller does not report $132 (FluidNC 3.x does not). Z travel from home to the bottom, used to limit probe moves like gSender does.' },
 ];
 
 const unitLabel = (kind) => {
@@ -326,9 +327,9 @@ function renderRunPanel(command) {
 }
 
 function renderToolLength(routine) {
-    for (const input of document.querySelectorAll('[data-tlpos]')) {
+    for (const input of document.querySelectorAll('[data-tl]')) {
         if (document.activeElement === input) continue;
-        const v = settings.toolChangePosition[input.dataset.tlpos];
+        const v = tlValue(input.dataset.tl);
         input.value = Number.isFinite(v) ? String(v) : '';
         input.removeAttribute('aria-invalid');
     }
@@ -474,18 +475,7 @@ $('diameter-add').addEventListener('click', addDiameter);
 $('diameter-new').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addDiameter();
 });
-$('diameter-delete').addEventListener('click', () => {
-    const value = diameterValue();
-    const tools = settings.tools.filter((t) => String(t[diameterKey()]) !== value);
-    const first = tools[0];
-    const next = { ...settings, tools };
-    if (first) {
-        update(withDiameterChoice(next, String(first[diameterKey()]), first));
-        return;
-    }
-    // only Auto and Tip are left, which happens on plates that offer them
-    update(withDiameterChoice(next, PROBE_TYPE_AUTO, null));
-});
+$('diameter-delete').addEventListener('click', () => update(withoutTool(settings, diameterValue(), units())));
 
 // gSender's startConnectivityTest: watching starts over each time the dialog opens.
 function restartConnectivityTest() {
@@ -517,7 +507,12 @@ $('stop').addEventListener('click', () => {
     render();
 });
 
-document.querySelectorAll('[data-tlpos]').forEach((input) => input.addEventListener('input', () => {
+// data-tl: 'x' | 'y' | 'z' (sensor location) | 'safeZ', all machine mm
+const tlValue = (key) => (key === 'safeZ' ? settings.safeZ : settings.toolChangePosition[key]);
+const withTlValue = (key, n) => (key === 'safeZ'
+    ? { ...settings, safeZ: n }
+    : { ...settings, toolChangePosition: { ...settings.toolChangePosition, [key]: n } });
+document.querySelectorAll('[data-tl]').forEach((input) => input.addEventListener('input', () => {
     const text = input.value.trim();
     const n = Number(text);
     if (!text || !Number.isFinite(n)) {
@@ -525,9 +520,9 @@ document.querySelectorAll('[data-tlpos]').forEach((input) => input.addEventListe
         return;
     }
     input.removeAttribute('aria-invalid');
-    update({ ...settings, toolChangePosition: { ...settings.toolChangePosition, [input.dataset.tlpos]: n } });
+    update(withTlValue(input.dataset.tl, n));
 }));
-document.querySelectorAll('[data-tlpos]').forEach((input) => input.addEventListener('focusout', () => render()));
+document.querySelectorAll('[data-tl]').forEach((input) => input.addEventListener('focusout', () => render()));
 $('tl-here').addEventListener('click', () => {
     // status MPos is in report units: inches when $13=1
     const scale = reported().$13 === '1' ? 25.4 : 1;

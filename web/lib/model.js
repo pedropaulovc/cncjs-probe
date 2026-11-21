@@ -25,7 +25,7 @@ import {
     offersAutoAndTip,
 } from './probe-options.js';
 import createWizard from './probe-tool-length.js';
-import { positionsInMm } from './cncjs-adapt.js';
+import { positionsInMm, restoringUnits } from './cncjs-adapt.js';
 import { get, getState } from './machine-store.js';
 import { convertToImperial, in2mm } from './units.js';
 
@@ -40,8 +40,10 @@ export const defaultSettings = () => ({
     probeType: calcProbeType(DEFAULT_PROBE_PROFILE.touchplateType),
     tool: structuredClone(DEFAULT_TOOLS[0]),
     toolChangePosition: structuredClone(DEFAULT_TOOL_CHANGE_POSITION),
-    // Stands in for $132 when the controller does not report it (FluidNC's $$ does not).
+    // Stands in for $132 when the controller does not report it (FluidNC 3.x's $$ does not).
     zMaxTravel: null,
+    // Machine Z (mm) the tool length wizard travels at.
+    safeZ: DEFAULT_SAFE_Z,
     // Units of the preview while no machine reports its own.
     previewUnits: METRIC_UNITS,
 });
@@ -123,6 +125,18 @@ export const withDiameterChoice = (settings, value, tool) => {
 
 export const toolDiameterOf = (settings, units) => calcToolDiameter(settings.probeType, units, settings.tool);
 
+// ProbeDiameter.tsx handleDeleteOption: drop the tools showing `value` in
+// `units`. With none left, plates that find the tool themselves fall back to
+// Auto; others to gSender's default tool, so X/Y keep a real diameter.
+export const withoutTool = (settings, value, units) => {
+    const key = units === METRIC_UNITS ? 'metricDiameter' : 'imperialDiameter';
+    const tools = settings.tools.filter((t) => String(t[key]) !== value);
+    const next = { ...settings, tools };
+    if (tools.length) return withDiameterChoice(next, String(tools[0][key]), tools[0]);
+    if (offersAutoAndTip(settings.probeProfile.touchplateType)) return withDiameterChoice(next, PROBE_TYPE_AUTO, null);
+    return withDiameterChoice(next, String(DEFAULT_TOOL[key]), { ...DEFAULT_TOOL });
+};
+
 // The machine settings the ported code reads ($13, $22, $132), with the widget's
 // Z max travel standing in for an unreported $132.
 export const effectiveControllerSettings = (settings, machineSettings) => {
@@ -152,11 +166,15 @@ export const zeroRoutine = (settings, machine) => {
         firmware: machine.type,
         distance: machine.distance,
     });
+    const isBitZero = settings.probeProfile.touchplateType === TOUCHPLATE_TYPE_BITZERO;
     // BitZero centres on captured positions under G21
-    const adapted = settings.probeProfile.touchplateType === TOUCHPLATE_TYPE_BITZERO ? positionsInMm(code, $13) : code;
-    const lines = gcodeSafe(adapted, 'G21', machine.modalUnits);
-    if (!lines) return { reason: 'Waiting for the machine to report its units (G20/G21).' };
-    return { lines: lines.filter((line) => typeof line === 'string') };
+    const adapted = isBitZero ? positionsInMm(code, $13) : code;
+    const safe = gcodeSafe(adapted, 'G21', machine.modalUnits);
+    if (!safe) return { reason: 'Waiting for the machine to report its units (G20/G21).' };
+    const lines = safe.filter((line) => typeof line === 'string');
+    // With $13=1 BitZero ends `G20 G0 X0 Y0`; put the operator's units back.
+    if (isBitZero && $13 === '1') return { lines: restoringUnits(lines) };
+    return { lines };
 };
 
 // gSender's server puts the program feed rate and spindle speed in the macro
@@ -166,17 +184,30 @@ export const toolchangeContext = (parserstate) => ({
     spindleRate: `${parserstate?.spindle}`,
 });
 
+// gSender's metric safe height. Its inch value ('-0.5') runs under G21 as -0.5 mm.
+export const DEFAULT_SAFE_Z = -10;
+// Grbl's default homing pull-off ($27) when the controller does not report one.
+const DEFAULT_PULL_OFF = 1;
+
 // The tool length wizard's three steps. Returns { start, probe, resume } or { reason }.
 export const toolLengthRoutine = (settings) => {
     const position = settings.toolChangePosition;
     if (![position.x, position.y, position.z].every(Number.isFinite)) {
         return { reason: 'Set the sensor location first.' };
     }
+    // Homing leaves Z the pull-off below its switch: travel lower than that.
+    const reported = get(getState(), 'controller.settings.settings', {});
+    const reportedPullOff = Number(reported.$27);
+    const pullOff = reported.$27 !== undefined && Number.isFinite(reportedPullOff) ? reportedPullOff : DEFAULT_PULL_OFF;
+    if (!Number.isFinite(settings.safeZ) || settings.safeZ > -pullOff) {
+        return { reason: `Safe Z must be at least the homing pull-off (${pullOff} mm) below machine Z0, e.g. ${DEFAULT_SAFE_Z}.` };
+    }
     const captured = [];
     const wizard = createWizard({
         controller: { command: (cmd, lines) => captured.push(lines) },
         settings: getProbeSettings(settings.probeProfile, settings.probe),
         position,
+        zSafe: String(settings.safeZ),
     });
     wizard.onStart();
     const start = captured[0];
@@ -186,7 +217,7 @@ export const toolLengthRoutine = (settings) => {
         return { reason: 'No room to probe: Z max travel ($132) is unknown or the sensor Z is past it. Set Z max travel under Settings.' };
     }
     // the wizard keeps positions for G21 moves
-    const $13 = get(getState(), 'controller.settings.settings.$13', '0');
+    const $13 = reported.$13 ?? '0';
     return {
         start: positionsInMm(start, $13),
         probe: positionsInMm(wizard.steps[0].substeps[0].actions[0].gcodeLines, $13),

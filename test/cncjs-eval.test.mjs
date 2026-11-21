@@ -140,6 +140,21 @@ test('reporting inches ($13=1), BitZero centres on the bore in mm', () => {
     assert.deepEqual(centring.map((s) => s.line.replace(/\s/g, '')), ['G1X50.8F300', 'G1Y-12.7F300']);
 });
 
+test('reporting inches ($13=1), BitZero leaves the machine in the units it found', () => {
+    setControllerSettings({ settings: { $13: '1' } });
+    for (const modalUnits of ['G21', 'G20']) {
+        for (const command of ['XYZ Touch', 'XY Touch', 'X Touch', 'Y Touch', 'Z Touch']) {
+            const settings = { ...withPlateType(defaultSettings(), 'BitZero'), command };
+            const { lines } = zeroRoutine(settings, { ...machineFor(modalUnits), settings: { settings: { $13: '1' } } });
+            const controller = inchReports();
+            controller.modal.units = modalUnits;
+            const sent = feed(controller, lines);
+            assertPlainGcode(sent, `BitZero ${command} ${modalUnits}`);
+            assert.equal(sent.at(-1).line, modalUnits, `BitZero ${command} on ${modalUnits} ends ${sent.at(-1).line}`);
+        }
+    }
+});
+
 test('reporting inches ($13=1), AutoZero keeps CNCjs\'s inch positions for its G20 moves', () => {
     setControllerSettings({ settings: { $13: '1' } });
     const settings = withDiameterChoice({ ...withPlateType(defaultSettings(), 'AutoZero'), command: 'XYZ Touch' }, 'Auto', null);

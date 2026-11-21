@@ -13,7 +13,6 @@
  * lodash/get.
  */
 import * as reduxStore from './machine-store.js';
-import { get } from './machine-store.js';
 
 const OFFSET = 1; // 1mm offset on all travel movements for soft limits.
 
@@ -26,11 +25,11 @@ const OFFSET = 1; // 1mm offset on all travel movements for soft limits.
  */
 export function getZTravels() {
     const store = reduxStore.getState();
-    const settings = get(store, 'controller.settings', {});
-    const mpos = get(store, 'controller.mpos', {});
+    const settings = reduxStore.get(store, 'controller.settings', {});
+    const mpos = reduxStore.get(store, 'controller.mpos', {});
 
-    const zMaxTravel = Math.abs(Number(get(settings, 'settings.$132', 0)));
-    const zMpos = Math.abs(Number(get(mpos, 'z', 0)));
+    const zMaxTravel = Math.abs(Number(reduxStore.get(settings, 'settings.$132', 0)));
+    const zMpos = Math.abs(Number(reduxStore.get(mpos, 'z', 0)));
 
     return [zMpos - OFFSET, zMaxTravel - zMpos - OFFSET];
 }

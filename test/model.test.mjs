@@ -13,6 +13,7 @@ import {
     unitsOf,
     withDiameterChoice,
     withPlateType,
+    withoutTool,
     zeroRoutine,
 } from '../web/lib/model.js';
 import { gcodeSafe, newTool, toolDiameterOptions, DEFAULT_TOOLS } from '../web/lib/probe-options.js';
@@ -107,4 +108,48 @@ test('on a G20 machine BitZero uses its thickness settings, in mm as its G21 rou
 
 test('the tool length context gives CNCjs gSender\'s programFeedrate and spindleRate', () => {
     assert.deepEqual(toolchangeContext({ feedrate: 1200, spindle: 18000 }), { programFeedrate: 'F1200', spindleRate: '18000' });
+});
+
+test('removing the last tool falls back to Auto only where the plate offers it', () => {
+    // two tools that both show as 0.125 in, as when 3.17 mm was added next to 3.175 mm
+    const tools = [DEFAULT_TOOLS[1], newTool(3.17, 'mm')];
+    const standard = withDiameterChoice({ ...defaultSettings(), tools, command: 'XYZ Touch' }, '0.125', DEFAULT_TOOLS[1]);
+    const afterStandard = withoutTool(standard, '0.125', 'in');
+    assert.deepEqual(afterStandard.tools, []);
+    assert.equal(afterStandard.probeType, 'Diameter');
+    assert.equal(toolDiameterOf(afterStandard, 'in'), 0.25);
+    assert.equal(toolDiameterOf(afterStandard, 'mm'), 6.35);
+    const autoZero = withPlateType(standard, 'AutoZero');
+    const afterAutoZero = withoutTool(autoZero, '0.125', 'in');
+    assert.equal(afterAutoZero.probeType, 'Auto');
+    assert.equal(toolDiameterOf(afterAutoZero, 'in'), 0);
+    // with tools left, the first remaining one is selected
+    assert.equal(toolDiameterOf(withoutTool(defaultSettings(), '6.35', 'mm'), 'mm'), 3.175);
+});
+
+test('tool length travels at the Safe Z setting, kept out of the homing pull-off', () => {
+    const settings = { ...defaultSettings(), toolChangePosition: { x: -10, y: -20, z: -30 } };
+    // gSender would send -0.5 here: an inch value run as mm
+    setControllerSettings({ settings: { $13: '1', $132: '356' } });
+    assert.ok(toolLengthRoutine(settings).start.includes('%global.toolchange.Z_SAFE_HEIGHT=-10'));
+    setControllerSettings({ settings: { $13: '0', $132: '356' } });
+    assert.ok(toolLengthRoutine({ ...settings, safeZ: -25 }).start.includes('%global.toolchange.Z_SAFE_HEIGHT=-25'));
+    // Grbl's default 1 mm pull-off without $27, the reported one with it
+    assert.match(toolLengthRoutine({ ...settings, safeZ: -0.5 }).reason, /pull-off \(1 mm\)/);
+    setControllerSettings({ settings: { $132: '356', $27: '3' } });
+    assert.match(toolLengthRoutine({ ...settings, safeZ: -2 }).reason, /pull-off \(3 mm\)/);
+    assert.equal(toolLengthRoutine({ ...settings, safeZ: -3 }).reason, undefined);
+});
+
+test('FluidNC 4.x settings from CNCjs drive homing, soft limits and tool length', () => {
+    // as reported by the user's FluidNC 4.1.1: $13=0 $22=1 $130=531 $131=180 $132=356
+    const reported = { $13: '0', $22: '1', $130: '531', $131: '180', $132: '356' };
+    const settings = { ...defaultSettings(), zMaxTravel: 100, toolChangePosition: { x: -5, y: -5, z: -50 } };
+    setControllerSettings(effectiveControllerSettings(settings, { settings: reported }));
+    setMachinePosition({ x: '-10.000', y: '-10.000', z: '-340.000' });
+    const machine = { type: 'Grbl', modalUnits: 'G21', distance: 'G90', settings: { settings: reported } };
+    // homing on: Z probe distance limited to 356 - 340 - 1
+    assert.ok(zeroRoutine(settings, machine).lines.includes('%Z_PROBE_DISTANCE=-15'));
+    // the reported $132 wins over the stand-in setting
+    assert.ok(toolLengthRoutine(settings).start.includes('%global.toolchange.PROBE_DISTANCE=304.000'));
 });

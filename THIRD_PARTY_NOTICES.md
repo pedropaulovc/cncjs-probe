@@ -30,9 +30,14 @@ Changes from gSender: touch detection also counts the toolsetter input
 `programFeedrate`/`spindleRate` macro values CNCjs lacks; when Grbl reports
 inches (`$13=1`), BitZero and tool length scale the positions they capture to
 mm, which gSender's server does for every routine and CNCjs does not
-(`web/lib/cncjs-adapt.js`); on G20 machines BitZero uses its thickness settings
-instead of gSender's 13 / 15.5 mm fallbacks; settings live in the browser's
-local storage; a Z max travel setting stands in for an unreported `$132`.
+(`web/lib/cncjs-adapt.js`), and BitZero then restores the operator's units mode
+at the end instead of leaving G20; on G20 machines BitZero uses its thickness
+settings instead of gSender's 13 / 15.5 mm fallbacks; the tool length wizard
+takes its safe height from a Safe Z setting (machine mm, default -10, checked
+against the homing pull-off) instead of gSender's '-0.5' for `$13=1`, which runs
+under G21 as -0.5 mm; removing the last tool falls back to Auto only on plates
+that offer it; settings live in the browser's local storage; a Z max travel
+setting stands in for an unreported `$132`.
 
 ## CNCjs (tests only)
 

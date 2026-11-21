@@ -192,7 +192,9 @@ test('the tool length wizard matches gSender', (t) => {
                     const reduxSettings = { settings: { $13, ...($132 === undefined ? {} : { $132 }) } };
                     setControllerSettings(reduxSettings);
                     const commands = [];
-                    const wizard = createWizard({ controller: { command: (...args) => commands.push(args) }, settings, position });
+                    // upstream's choice; the widget passes its own Safe Z setting instead
+                    const zSafe = $13 === '1' ? '-0.5' : '-10';
+                    const wizard = createWizard({ controller: { command: (...args) => commands.push(args) }, settings, position, zSafe });
                     wizard.onStart();
                     assert.deepStrictEqual(commands, expected.commands);
                     assert.deepStrictEqual(

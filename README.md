@@ -37,10 +37,17 @@ grblHAL and FluidNC).
 Opened on its own (any static server on the `web` directory), the page only
 previews the G-code.
 
-FluidNC does not report `$132` (Z max travel), `$22` (homing) or `$13` (report
-inches) in `$$`. Fill in **Settings → Z max travel ($132)** to use tool length;
-without `$22` the Z probe distance is not limited by soft limits. The widget
-assumes positions are reported in mm, so leave FluidNC's `report_inches` off.
+The widget reads `$13` (report inches), `$22` (homing), `$27` (homing pull-off)
+and `$132` (Z max travel) from CNCjs's copy of the controller settings. FluidNC
+4.x reports them in `$$`; FluidNC 3.x reports none of them. On a controller that
+does not report `$132`, fill in **Settings → Z max travel ($132)** to use tool
+length; without `$22` the Z probe distance is not limited by soft limits, and
+without `$13` positions are taken as mm.
+
+Tool length travels between sensor and work at **Safe Z**, a machine Z in mm
+(default -10, gSender's metric value). It must sit at least the homing pull-off
+(`$27`, or 1 mm when unreported) below machine Z0, so the move never runs back
+into the Z limit switch.
 
 ## Safety
 

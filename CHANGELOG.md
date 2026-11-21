@@ -17,4 +17,9 @@
 - Fixes over gSender for running under CNCjs: on a Grbl reporting inches
   (`$13=1`), BitZero centring and the tool length wizard's saved position and
   `TOOL_OFFSET` use mm, as gSender's server makes them; on G20 machines BitZero
-  uses its thickness settings instead of falling back to 13 / 15.5 mm.
+  uses its thickness settings instead of falling back to 13 / 15.5 mm; BitZero
+  on a Grbl reporting inches puts the operator's units mode back at the end
+  instead of leaving the machine in G20; the tool length wizard travels at a
+  Safe Z setting in machine mm (default -10) checked against the homing pull-off,
+  where gSender used -0.5 mm on inch-reporting machines (its inch value run
+  under G21, inside the pull-off of the Z switch).

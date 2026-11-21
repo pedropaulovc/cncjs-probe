@@ -197,6 +197,34 @@ test('tool length mode previews gSender\'s wizard steps', async () => {
     }
 });
 
+test('embedded with FluidNC 4.x settings, tool length uses $132 and a visible Safe Z kept off the switch', async () => {
+    // as reported by the user's FluidNC 4.1.1
+    const { ctx, w, errors } = await embedded({ settings: { settings: { $10: '1', $13: '0', $22: '1', $130: '531', $131: '180', $132: '356' } } });
+    try {
+        await w.getByRole('button', { name: 'Tool length', exact: true }).click();
+        await w.getByText('Settings', { exact: true }).click();
+        assert.equal(await w.getByLabel('Z max travel ($132)').count(), 0);
+        const safeZ = w.getByLabel('Safe Z');
+        assert.equal(await safeZ.inputValue(), '-10');
+        await w.getByLabel('Sensor Z').fill('-30');
+        const code = () => w.locator('#gcode').innerText();
+        assert.match(await code(), /%global\.toolchange\.PROBE_DISTANCE=324\.000/);
+        assert.match(await code(), /%global\.toolchange\.Z_SAFE_HEIGHT=-10\n/);
+        const start = w.getByRole('button', { name: 'Start', exact: true });
+        assert.equal(await start.isDisabled(), false);
+        // gSender's inch-mode value, run as mm, would sit inside the homing pull-off
+        await safeZ.fill('-0.5');
+        assert.match(await w.locator('#code-note').innerText(), /pull-off \(1 mm\)/);
+        assert.equal(await start.isDisabled(), true);
+        await safeZ.fill('-20');
+        assert.match(await code(), /%global\.toolchange\.Z_SAFE_HEIGHT=-20\n/);
+        assert.equal(await start.isDisabled(), false);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
+
 test('embedded in CNCjs, a toolsetter touch passes the connection test and Start sends the preview', async () => {
     const { ctx, w, fire, emitted, errors } = await embedded();
     try {

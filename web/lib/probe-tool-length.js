@@ -11,16 +11,19 @@
  * Modified: ported to JS (browser ES module). Upstream reads the controller,
  * the probe settings (getProbeSettings) and the fixed sensor location
  * (workspace.toolChangePosition) from gSender globals; here createWizard and
- * calculateMaxZProbeDistance take them as arguments, and $13/$132 come from
- * ./machine-store.js (filled from CNCjs). The G-code is unchanged.
+ * calculateMaxZProbeDistance take them as arguments, and $132 comes from
+ * ./machine-store.js (filled from CNCjs). The safe height is an argument too:
+ * upstream picks '-0.5' when $13=1 and '-10' otherwise, but every move to it
+ * runs under G21, so with $13=1 it means -0.5 mm machine Z, inside the homing
+ * pull-off of the Z switch on Grbl. The widget passes a machine Z in mm from
+ * its settings instead. The rest of the G-code is unchanged.
  */
 import * as reduxStore from './machine-store.js';
-import { get } from './machine-store.js';
 
 // $132 is max z travel, if soft limits ($20) enabled we need to make sure probe distance will not exceed max limits
 export const calculateMaxZProbeDistance = (_zProbeDistance = 30, position) => {
     const state = reduxStore.getState();
-    const maxZTravel = Number(get(state, 'controller.settings.settings.$132'));
+    const maxZTravel = Number(reduxStore.get(state, 'controller.settings.settings.$132'));
 
     const curZPos = Math.abs(position.z);
 
@@ -28,8 +31,9 @@ export const calculateMaxZProbeDistance = (_zProbeDistance = 30, position) => {
 };
 
 // controller: { command(cmd, lines) }; settings: getProbeSettings() result;
-// position: the fixed sensor location in machine coordinates (mm).
-const createWizard = ({ controller, settings, position }) => {
+// position: the fixed sensor location in machine coordinates (mm);
+// zSafe: the machine Z (mm) to travel at, as a string.
+const createWizard = ({ controller, settings, position, zSafe }) => {
     return {
         intro: {
             icon: 'fas fa-ruler-vertical',
@@ -37,11 +41,6 @@ const createWizard = ({ controller, settings, position }) => {
                 'Prepare to probe the initial tool length. Ensure your router/spindle is turned off and has fully stopped spinning.',
         },
         onStart: () => {
-            // Get $13 value for adjustment of Z Safe Height
-            const state = reduxStore.getState();
-            const $13 = get(state, 'controller.settings.settings.$13', '0');
-            const zSafe = $13 === '1' ? '-0.5' : '-10';
-
             const zProbeDistance = calculateMaxZProbeDistance(
                 settings.zProbeDistance,
                 position,
