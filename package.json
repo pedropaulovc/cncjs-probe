@@ -27,17 +27,24 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "web"
+    "web",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "pack:check": "npm pack --dry-run",
-    "test": "node --test"
+    "test": "node --test \"test/*.test.mjs\""
   },
   "type": "module",
   "devDependencies": {
+    "ensure-type": "1.5.1",
+    "esbuild": "0.28.2",
+    "escodegen": "1.11.1",
+    "esprima": "4.0.1",
+    "gcode-parser": "2.2.0",
+    "lodash": "4.17.21",
     "playwright": "1.64.1"
   }
 }
