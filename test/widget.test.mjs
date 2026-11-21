@@ -566,35 +566,95 @@ test('tool length mode hides the touch plate and Zero-only controls, and Zero br
     }
 });
 
-test('embedded in CNCjs, Stop shows in tool length mode and sends the wizard back to Start', async () => {
-    const { ctx, w, fire, emitted, errors } = await embedded({ settings: { settings: { $132: '120' } } });
+const wizardSetup = async () => {
+    const page = await embedded({ settings: { settings: { $132: '120' } } });
+    const { w, fire } = page;
+    await w.getByRole('button', { name: 'Tool length', exact: true }).click();
+    await w.getByLabel('Sensor Z').fill('-30');
+    await w.getByLabel('Connection test').uncheck();
+    const busy = () => fire('feeder:status', { hold: false, queue: 12, pending: true });
+    const idle = () => fire('feeder:status', { hold: false, queue: 0, pending: false });
+    const buttons = {
+        stop: w.getByRole('button', { name: 'Stop', exact: true }),
+        start: w.getByRole('button', { name: 'Start', exact: true }),
+        probe: w.getByRole('button', { name: 'Probe tool length' }),
+        resume: w.getByRole('button', { name: 'Resume' }),
+    };
+    // which wizard buttons are enabled
+    const enabled = async () => Object.fromEntries(await Promise.all(['start', 'probe', 'resume'].map(async (k) => [k, !(await buttons[k].isDisabled())])));
+    return { ...page, busy, idle, ...buttons, enabled };
+};
+
+test('embedded in CNCjs, Stop during Start sends the wizard back to Start', async () => {
+    const { ctx, w, emitted, errors, busy, idle, stop, start, enabled } = await wizardSetup();
     try {
-        await w.getByRole('button', { name: 'Tool length', exact: true }).click();
-        await w.getByLabel('Sensor Z').fill('-30');
-        await w.getByLabel('Connection test').uncheck();
-        const stop = w.getByRole('button', { name: 'Stop', exact: true });
-        const start = w.getByRole('button', { name: 'Start', exact: true });
-        const probe = w.getByRole('button', { name: 'Probe tool length' });
-        const resume = w.getByRole('button', { name: 'Resume' });
         assert.equal(await stop.isVisible(), false);
-        // Start, then Probe, and Stop while the probe block is still feeding
         await start.click();
-        await fire('feeder:status', { hold: false, queue: 0, pending: false });
-        await probe.click();
-        await fire('feeder:status', { hold: false, queue: 12, pending: true });
+        await busy();
         assert.equal(await stop.isVisible(), true);
         await stop.click();
         assert.ok((await emitted()).some((e) => e[0] === 'command' && e[2] === 'feeder:stop'));
-        await fire('feeder:status', { hold: false, queue: 0, pending: false });
+        await idle();
         assert.equal(await stop.isVisible(), false);
-        // nothing was stored: no Resume, and Probe waits for a fresh Start
-        assert.equal(await resume.isDisabled(), true);
-        assert.equal(await probe.isDisabled(), true);
-        assert.equal(await start.isDisabled(), false);
+        assert.deepEqual(await enabled(), { start: true, probe: false, resume: false });
         assert.match(await w.locator('#message').innerText(), /run the tool length wizard again from Start/);
-        assert.doesNotMatch(await w.locator('#tl-note').innerText(), /Tool length stored/);
         assert.deepEqual(errors, []);
     } finally {
         await ctx.close();
+    }
+});
+
+test('embedded in CNCjs, a Probe step cut short by Stop, alarm or reset keeps Start and asks to probe again', async () => {
+    const interruptions = {
+        stop: async (page) => page.stop.click(),
+        alarm: async (page) => page.fire('controller:state', 'Grbl', grblState({ activeState: 'Alarm' })),
+        reset: async (page) => page.fire('serialport:read', 'Grbl 4.1 [FluidNC v4.1.1 (wifi) \'$\' for help]'),
+    };
+    for (const [how, interrupt] of Object.entries(interruptions)) {
+        const page = await wizardSetup();
+        try {
+            await page.start.click();
+            await page.busy();
+            await page.idle();
+            await page.probe.click();
+            await page.busy();
+            await interrupt(page);
+            await page.idle();
+            await page.fire('controller:state', 'Grbl', grblState());
+            // Start's saved position, spindle and modes stand; no length was stored
+            assert.deepEqual(await page.enabled(), { start: false, probe: true, resume: false }, how);
+            assert.match(await page.w.locator('#message').innerText(), /probe the tool again; Start's saved position is kept/, how);
+            assert.doesNotMatch(await page.w.locator('#tl-note').innerText(), /Tool length stored/, how);
+            assert.deepEqual(page.errors, [], how);
+        } finally {
+            await page.ctx.close();
+        }
+    }
+});
+
+test('embedded in CNCjs, a finished wizard survives Stop, alarms and status lines from other routines', async () => {
+    const page = await wizardSetup();
+    try {
+        await page.start.click();
+        await page.busy();
+        await page.idle();
+        await page.probe.click();
+        await page.busy();
+        await page.idle();
+        // finished: Resume, or probe again
+        assert.deepEqual(await page.enabled(), { start: false, probe: true, resume: true });
+        // a Zero routine, stopped, then an alarm and ordinary controller lines
+        await page.busy();
+        await page.stop.click();
+        await page.idle();
+        await page.fire('controller:state', 'Grbl', grblState({ activeState: 'Alarm' }));
+        await page.fire('serialport:read', 'ok');
+        await page.fire('controller:state', 'Grbl', grblState());
+        assert.deepEqual(await page.enabled(), { start: false, probe: true, resume: true });
+        assert.match(await page.w.locator('#tl-note').innerText(), /Tool length stored/);
+        assert.match(await page.w.locator('#message').innerText(), /^Probing stopped/);
+        assert.deepEqual(page.errors, []);
+    } finally {
+        await page.ctx.close();
     }
 });

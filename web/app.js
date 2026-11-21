@@ -71,7 +71,9 @@ let machine = { ...NO_MACHINE };
 let link = null;
 
 // run: 'closed' | 'open'; connectivity: 'waiting' | 'confirmed'; toolLength: 'ready' | 'started' | 'probed'
-const ui = { run: 'closed', connectivity: 'waiting', toolLength: 'ready', message: null };
+// tlPending follows the last sent tool length step through CNCjs's feeder:
+// 'none' | 'start-sent' | 'start-running' | 'probe-sent' | 'probe-running'.
+const ui = { run: 'closed', connectivity: 'waiting', toolLength: 'ready', tlPending: 'none', message: null };
 
 const PLATE_TYPES = [
     TOUCHPLATE_TYPE_STANDARD,
@@ -510,17 +512,35 @@ $('stop').addEventListener('click', () => {
     if (!link) return;
     link.command('feeder:stop');
     link.command('feedhold');
-    // a step counts as sent, not done: after a Stop its saved values may be missing
-    // or stale, so the wizard starts over instead of offering Probe or Resume
-    if (ui.toolLength !== 'ready') {
-        ui.toolLength = 'ready';
-        say('Stopped: the machine is in feed hold. Reset or resume it from CNCjs, then run the tool length wizard again from Start.', 'warning');
+    if (abortToolLengthStep('Stopped: the machine is in feed hold; reset or resume it from CNCjs.')) {
         render();
         return;
     }
     say('Probing stopped: the machine is in feed hold. Reset or resume it from CNCjs.', 'warning');
     render();
 });
+
+// The wizard advances when a step is sent. A step that then does not finish (Stop,
+// alarm, reset, port closed) leaves what it saves missing or stale: an unfinished
+// Start goes back to ready, an unfinished Probe back to started, keeping Start's
+// saved position, spindle and modes. Returns whether a step was interrupted.
+function abortToolLengthStep(why) {
+    if (ui.tlPending === 'none') return false;
+    ui.toolLength = ui.tlPending.startsWith('start') ? 'ready' : 'started';
+    ui.tlPending = 'none';
+    const next = ui.toolLength === 'ready' ? 'run the tool length wizard again from Start' : 'probe the tool again; Start\'s saved position is kept';
+    say(`${why} The tool length step did not finish: ${next}.`, 'warning');
+    return true;
+}
+
+// A sent step is running once the feeder is busy with it and done when it drains.
+function followToolLengthFeed(feeder) {
+    if (feeder === 'busy' && ui.tlPending.endsWith('-sent')) ui.tlPending = ui.tlPending.replace('-sent', '-running');
+    if (feeder === 'idle' && ui.tlPending.endsWith('-running')) ui.tlPending = 'none';
+}
+
+// Grbl, grblHAL and FluidNC greet with this after a reset (Ctrl-X).
+const RESET_BANNER = /^Grbl(HAL)? \d/i;
 
 // data-tl: 'x' | 'y' | 'z' (sensor location) | 'safeZ', all machine mm
 const tlValue = (key) => (key === 'safeZ' ? settings.safeZ : settings.toolChangePosition[key]);
@@ -554,17 +574,20 @@ const toolLengthStep = (step) => {
     if (step === 'start') {
         if (ui.toolLength !== 'ready' || !send(routine.start, context)) return;
         ui.toolLength = 'started';
+        ui.tlPending = 'start-sent';
         restartConnectivityTest();
         say('Tool probe initiated.', 'info');
     }
     if (step === 'probe') {
         if (ui.connectivity !== 'confirmed' || !send(routine.probe, context)) return;
         ui.toolLength = 'probed';
+        ui.tlPending = 'probe-sent';
         say('Probing tool length.', 'info');
     }
     if (step === 'resume') {
         if (!send(routine.resume, context)) return;
         ui.toolLength = 'ready';
+        ui.tlPending = 'none';
         say('Returning to the starting position.', 'info');
     }
     render();
@@ -575,6 +598,7 @@ $('tl-resume').addEventListener('click', () => toolLengthStep('resume'));
 // Leaves the wizard without sending anything, so Start can store a new position.
 $('tl-cancel').addEventListener('click', () => {
     ui.toolLength = 'ready';
+    ui.tlPending = 'none';
     say(null);
     render();
 });
@@ -586,7 +610,10 @@ function onCncjs(name, ...args) {
         machine = { ...machine, link: state, linkMessage: message };
     }
     if (name === 'serialport:open') machine = { ...machine, portState: 'open' };
-    if (name === 'serialport:close') machine = { ...machine, portState: 'closed', activeState: null, touch: TOUCH_NONE };
+    if (name === 'serialport:close') {
+        machine = { ...machine, portState: 'closed', activeState: null, touch: TOUCH_NONE };
+        abortToolLengthStep('The port closed.');
+    }
     if (name === 'controller:settings') {
         machine = { ...machine, settings: args[1] ?? { settings: {} } };
         syncMachineStore();
@@ -607,10 +634,17 @@ function onCncjs(name, ...args) {
         const watching = ui.run === 'open' || ui.toolLength === 'started';
         if (watching) ui.connectivity = connectivityAfter({ connectivityTest: settings.probe.connectivityTest, confirmed: ui.connectivity, touch: machine.touch });
     }
+    if (name === 'controller:state' && machine.activeState === 'Alarm') abortToolLengthStep('The machine went into alarm.');
+    if (name === 'serialport:read') {
+        // every controller line comes here; only a reset banner matters
+        if (!RESET_BANNER.test(String(args[0] ?? ''))) return;
+        abortToolLengthStep('The controller was reset.');
+    }
     if (name === 'workflow:state') machine = { ...machine, workflowState: args[0] };
     if (name === 'feeder:status') {
         const status = args[0] ?? {};
         machine = { ...machine, feeder: status.queue > 0 || status.pending ? 'busy' : 'idle' };
+        followToolLengthFeed(machine.feeder);
     }
     render();
 }
@@ -621,6 +655,7 @@ function usePort(port) {
     link = null;
     ui.run = 'closed';
     ui.toolLength = 'ready';
+    ui.tlPending = 'none';
     machine = { ...NO_MACHINE, port, link: port ? 'connecting' : 'no-port' };
     syncMachineStore();
     setMachinePosition({});

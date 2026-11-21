@@ -12,13 +12,19 @@
   a fixed toolsetter at the Sensor position and points to Zero's Z routine with
   your touch plate for setting work Z. Switching back to Zero restores
   everything.
-- Tool length no longer stores `global.toolchange.PROBE_THICKNESS_MM` (gSender
-  writes the selected plate's thickness there for its own tool change macros;
-  the wizard's G-code never reads it), so its output does not depend on the
-  hidden plate.
+- Breaking for CNCjs macros that read `global.toolchange.PROBE_THICKNESS_MM`:
+  Tool length no longer writes it. gSender stores the selected plate's thickness
+  there for its own tool change macros; the wizard's G-code never reads it, and
+  Tool length mode has no plate any more. A macro that needs a plate thickness
+  should set its own value.
 - Stop now shows in Tool length mode too while CNCjs's feeder is running a
-  routine; it used to sit in the Zero section only. Stopping mid-wizard sends it
-  back to Start, since the stopped step's saved values may be missing or stale.
+  routine; it used to sit in the Zero section only.
+- The tool length wizard follows each step through CNCjs's feeder. If Stop, an
+  alarm (e.g. a probe that never touches), a controller reset or a closed port
+  cuts a step short, an unfinished Start goes back to Start and an unfinished
+  Probe asks to probe again, keeping Start's saved position, spindle and modes;
+  it no longer claims a length was stored. A finished wizard is left alone when
+  a later Zero routine is stopped.
 
 ## [0.1.1] - 2026-11-20
 
