@@ -55,6 +55,8 @@ const EVENTS = [
     'controller:state',
     'workflow:state',
     'feeder:status',
+    // only the controller's startup banner is used (a reset); see app.js
+    'serialport:read',
 ];
 
 // Joins `port` and reports CNCjs events through onEvent(name, ...args) plus

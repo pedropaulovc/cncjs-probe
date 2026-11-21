@@ -254,6 +254,8 @@ const checkHomedSafeZ = (safeZ, sensorZ, reported) => {
     return {};
 };
 
+const PROBE_THICKNESS_VAR = '%global.toolchange.PROBE_THICKNESS_MM';
+
 // The tool length wizard's three steps. Returns { start, probe, resume, note? } or { reason }.
 export const toolLengthRoutine = (settings) => {
     const position = settings.toolChangePosition;
@@ -284,8 +286,11 @@ export const toolLengthRoutine = (settings) => {
     if (safeZ.reason) return safeZ;
     // the wizard keeps positions for G21 moves
     const $13 = reported.$13 ?? '0';
+    // gSender stores the selected plate's thickness for its own tool change macros;
+    // the wizard's G-code never reads it, and Tool length mode has no plate
+    const plateFree = start.filter((line) => !line.startsWith(`${PROBE_THICKNESS_VAR}=`));
     return {
-        start: positionsInMm(start, $13),
+        start: positionsInMm(plateFree, $13),
         probe: positionsInMm(wizard.steps[0].substeps[0].actions[0].gcodeLines, $13),
         resume: positionsInMm(wizard.steps[1].substeps[0].actions[0].gcodeLines, $13),
         note: safeZ.note,

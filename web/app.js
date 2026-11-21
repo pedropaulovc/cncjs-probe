@@ -71,7 +71,9 @@ let machine = { ...NO_MACHINE };
 let link = null;
 
 // run: 'closed' | 'open'; connectivity: 'waiting' | 'confirmed'; toolLength: 'ready' | 'started' | 'probed'
-const ui = { run: 'closed', connectivity: 'waiting', toolLength: 'ready', message: null };
+// tlPending follows the last sent tool length step through CNCjs's feeder:
+// 'none' | 'start-sent' | 'start-running' | 'probe-sent' | 'probe-running'.
+const ui = { run: 'closed', connectivity: 'waiting', toolLength: 'ready', tlPending: 'none', message: null };
 
 const PLATE_TYPES = [
     TOUCHPLATE_TYPE_STANDARD,
@@ -120,25 +122,29 @@ const probeSetting = (key) => ({
     set: (s, v) => ({ ...s, probe: { ...s.probe, [key]: v } }),
 });
 // kind: 'len' (mm, shown in machine units) | 'feed' (mm/min) | 'mm' (always mm)
+// use: 'zero' (Zero mode only) | 'both'. Tool length probes a fixed toolsetter, so
+// only what its G-code reads is 'both': Fast find, Slow find, Retraction and the
+// Z max travel stand-in. hidden(plate, mode) adds the per-plate conditions.
 const FIELDS = [
-    { id: 'tipDiameter3D', label: 'Tip diameter', kind: 'len', ...probeSetting('tipDiameter3D'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_3D, title: 'Diameter of probe tip where it touches off the material. (Default 2)' },
-    { id: 'standardBlock', label: 'Block thickness', kind: 'len', ...zThickness('standardBlock'), hidden: (p) => p !== TOUCHPLATE_TYPE_STANDARD, title: 'Plate thickness where the bit touches when Z-axis probing using the Standard Block plate. (Default 15)' },
-    { id: 'autoZero', label: 'AutoZero thickness', kind: 'len', ...zThickness('autoZero'), hidden: (p) => p !== TOUCHPLATE_TYPE_AUTOZERO, title: 'Plate thickness where the bit touches when Z-axis probing using the AutoZero plate. (Default 5)' },
-    { id: 'zProbe', label: 'Puck thickness', kind: 'len', ...zThickness('zProbe'), hidden: (p) => p !== TOUCHPLATE_TYPE_ZERO, title: 'Plate thickness where the bit touches when Z-axis probing when using the Z Probe plate. (Default 15)' },
-    { id: 'probe3D', label: 'Z offset', kind: 'len', range: 'any', ...zThickness('probe3D'), hidden: (p) => p !== TOUCHPLATE_TYPE_3D, title: 'Adjust to improve the Z zeroing accuracy of your probe. (Default 0)' },
-    { id: 'bitZero', label: 'BitZero thickness (XYZ)', kind: 'len', ...zThickness('bitZero'), hidden: (p) => p !== TOUCHPLATE_TYPE_BITZERO, title: 'Plate thickness for XYZ probing where the bit touches the inset surface inside the bore. (Default 13)' },
-    { id: 'bitZeroZOnly', label: 'BitZero thickness (Z-only)', kind: 'len', ...zThickness('bitZeroZOnly'), hidden: (p) => p !== TOUCHPLATE_TYPE_BITZERO, title: 'Plate thickness for Z-only probing where the probe is placed flat on the surface. (Default 15.5)' },
-    { id: 'xyThickness', label: 'XY thickness', kind: 'len', get: (s) => s.probeProfile.xyThickness, set: (s, v) => ({ ...s, probeProfile: { ...s.probeProfile, xyThickness: v } }), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_STANDARD, title: 'Plate thickness where the bit touches when X/Y-axis probing. (Default 10)' },
-    { id: 'xyRetract3D', label: 'XY retract', kind: 'len', ...probeSetting('xyRetract3D'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_3D, title: 'How much extra to move off the surface when probing. (Default 10)' },
-    { id: 'zProbeDistance', label: 'Z probe distance', kind: 'len', ...probeSetting('zProbeDistance'), hidden: (p, mode) => mode !== 'zero' || offersAutoAndTip(p), title: 'Movement in Z before it gives up on probing. (Reduce this value if you get a soft limit alarm 2 when probing, Default 30)' },
-    { id: 'probeFastFeedrate', label: 'Fast find', kind: 'feed', ...probeSetting('probeFastFeedrate'), hidden: (p, mode) => mode === 'zero' && offersAutoAndTip(p), title: 'Probe speed before the first touch-off. (Default 150)' },
-    { id: 'probeFeedrate', label: 'Slow find', kind: 'feed', ...probeSetting('probeFeedrate'), hidden: (p, mode) => mode === 'zero' && offersAutoAndTip(p), title: 'Speed for the more accurate second touch-off. (Default 75)' },
-    { id: 'retractionDistance', label: 'Retraction', kind: 'len', ...probeSetting('retractionDistance'), hidden: (p, mode) => mode === 'zero' && offersAutoAndTip(p), title: 'How far the bit moves away after a successful touch. (Default 2)' },
-    { id: 'probeMovementSpeed', label: 'Probe Movement Speed', kind: 'feed', range: 'nonNegative', ...probeSetting('probeMovementSpeed'), hidden: (p, mode) => mode !== 'zero' || p === TOUCHPLATE_TYPE_BITZERO, title: 'Feed rate for retract/reposition moves during probing. If 0, these moves use rapid (G0). If set, they use a controlled feed move (G1) at this speed instead. (Default 0)' },
-    { id: 'zRetractNormal', label: 'Final Z retract', kind: 'len', min: 1, ...probeSetting('zRetractNormal'), hidden: (p, mode) => mode !== 'zero' || offersAutoAndTip(p), title: 'How far to move away in the Z-axis at the end of the routine. (Default 2)' },
-    { id: 'zRetractAuto', label: 'Final Z retract', kind: 'len', min: 1, ...probeSetting('zRetractAuto'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_AUTOZERO, title: 'How far to move away in the Z-axis at the end of the routine. (Default 1)' },
-    { id: 'zMaxTravel', label: 'Z max travel ($132)', kind: 'mm', optional: true, get: (s) => s.zMaxTravel, set: (s, v) => ({ ...s, zMaxTravel: v }), hidden: () => reported().$132 !== undefined, title: 'Your controller does not report $132 (FluidNC 3.x does not). Z travel from home to the bottom, used to limit probe moves like gSender does.' },
+    { id: 'tipDiameter3D', label: 'Tip diameter', kind: 'len', use: 'zero', ...probeSetting('tipDiameter3D'), hidden: (p) => p !== TOUCHPLATE_TYPE_3D, title: 'Diameter of probe tip where it touches off the material. (Default 2)' },
+    { id: 'standardBlock', label: 'Block thickness', kind: 'len', use: 'zero', ...zThickness('standardBlock'), hidden: (p) => p !== TOUCHPLATE_TYPE_STANDARD, title: 'Plate thickness where the bit touches when Z-axis probing using the Standard Block plate. (Default 15)' },
+    { id: 'autoZero', label: 'AutoZero thickness', kind: 'len', use: 'zero', ...zThickness('autoZero'), hidden: (p) => p !== TOUCHPLATE_TYPE_AUTOZERO, title: 'Plate thickness where the bit touches when Z-axis probing using the AutoZero plate. (Default 5)' },
+    { id: 'zProbe', label: 'Puck thickness', kind: 'len', use: 'zero', ...zThickness('zProbe'), hidden: (p) => p !== TOUCHPLATE_TYPE_ZERO, title: 'Plate thickness where the bit touches when Z-axis probing when using the Z Probe plate. (Default 15)' },
+    { id: 'probe3D', label: 'Z offset', kind: 'len', use: 'zero', range: 'any', ...zThickness('probe3D'), hidden: (p) => p !== TOUCHPLATE_TYPE_3D, title: 'Adjust to improve the Z zeroing accuracy of your probe. (Default 0)' },
+    { id: 'bitZero', label: 'BitZero thickness (XYZ)', kind: 'len', use: 'zero', ...zThickness('bitZero'), hidden: (p) => p !== TOUCHPLATE_TYPE_BITZERO, title: 'Plate thickness for XYZ probing where the bit touches the inset surface inside the bore. (Default 13)' },
+    { id: 'bitZeroZOnly', label: 'BitZero thickness (Z-only)', kind: 'len', use: 'zero', ...zThickness('bitZeroZOnly'), hidden: (p) => p !== TOUCHPLATE_TYPE_BITZERO, title: 'Plate thickness for Z-only probing where the probe is placed flat on the surface. (Default 15.5)' },
+    { id: 'xyThickness', label: 'XY thickness', kind: 'len', use: 'zero', get: (s) => s.probeProfile.xyThickness, set: (s, v) => ({ ...s, probeProfile: { ...s.probeProfile, xyThickness: v } }), hidden: (p) => p !== TOUCHPLATE_TYPE_STANDARD, title: 'Plate thickness where the bit touches when X/Y-axis probing. (Default 10)' },
+    { id: 'xyRetract3D', label: 'XY retract', kind: 'len', use: 'zero', ...probeSetting('xyRetract3D'), hidden: (p) => p !== TOUCHPLATE_TYPE_3D, title: 'How much extra to move off the surface when probing. (Default 10)' },
+    { id: 'zProbeDistance', label: 'Z probe distance', kind: 'len', use: 'zero', ...probeSetting('zProbeDistance'), hidden: (p) => offersAutoAndTip(p), title: 'Movement in Z before it gives up on probing. (Reduce this value if you get a soft limit alarm 2 when probing, Default 30)' },
+    { id: 'probeFastFeedrate', label: 'Fast find', kind: 'feed', use: 'both', ...probeSetting('probeFastFeedrate'), hidden: (p, mode) => mode === 'zero' && offersAutoAndTip(p), title: 'Probe speed before the first touch-off. (Default 150)' },
+    { id: 'probeFeedrate', label: 'Slow find', kind: 'feed', use: 'both', ...probeSetting('probeFeedrate'), hidden: (p, mode) => mode === 'zero' && offersAutoAndTip(p), title: 'Speed for the more accurate second touch-off. (Default 75)' },
+    { id: 'retractionDistance', label: 'Retraction', kind: 'len', use: 'both', ...probeSetting('retractionDistance'), hidden: (p, mode) => mode === 'zero' && offersAutoAndTip(p), title: 'How far the bit moves away after a successful touch. (Default 2)' },
+    { id: 'probeMovementSpeed', label: 'Probe Movement Speed', kind: 'feed', use: 'zero', range: 'nonNegative', ...probeSetting('probeMovementSpeed'), hidden: (p) => p === TOUCHPLATE_TYPE_BITZERO, title: 'Feed rate for retract/reposition moves during probing. If 0, these moves use rapid (G0). If set, they use a controlled feed move (G1) at this speed instead. (Default 0)' },
+    { id: 'zRetractNormal', label: 'Final Z retract', kind: 'len', use: 'zero', min: 1, ...probeSetting('zRetractNormal'), hidden: (p) => offersAutoAndTip(p), title: 'How far to move away in the Z-axis at the end of the routine. (Default 2)' },
+    { id: 'zRetractAuto', label: 'Final Z retract', kind: 'len', use: 'zero', min: 1, ...probeSetting('zRetractAuto'), hidden: (p) => p !== TOUCHPLATE_TYPE_AUTOZERO, title: 'How far to move away in the Z-axis at the end of the routine. (Default 1)' },
+    { id: 'zMaxTravel', label: 'Z max travel ($132)', kind: 'mm', use: 'both', optional: true, get: (s) => s.zMaxTravel, set: (s, v) => ({ ...s, zMaxTravel: v }), hidden: () => reported().$132 !== undefined, title: 'Your controller does not report $132 (FluidNC 3.x does not). Z travel from home to the bottom, used to limit probe moves like gSender does.' },
 ];
+const fieldShown = (field, plate, mode) => (field.use === 'both' || mode === 'zero') && !field.hidden(plate, mode);
 
 const unitLabel = (kind) => {
     if (kind === 'mm') return 'mm';
@@ -168,7 +174,7 @@ const parsedValue = (field, text) => {
 let fieldsKey = '';
 function renderFields() {
     const plate = settings.probeProfile.touchplateType;
-    const visible = FIELDS.filter((f) => !f.hidden(plate, settings.mode));
+    const visible = FIELDS.filter((f) => fieldShown(f, plate, settings.mode));
     const key = `${visible.map((f) => f.id).join(',')}|${units()}`;
     const box = $('fields');
     if (key !== fieldsKey) {
@@ -368,6 +374,8 @@ function render() {
     $('touch-text').textContent = portReady() ? TOUCH_LABELS[machine.touch] : 'No device connected';
     $('connectivity-test').checked = Boolean(settings.probe.connectivityTest);
 
+    // Tool length probes a fixed toolsetter: the plate and its routines do not apply
+    $('plate-row').hidden = settings.mode !== 'zero';
     $('zero').hidden = settings.mode !== 'zero';
     $('tool-length').hidden = settings.mode !== 'toolLength';
 
@@ -504,9 +512,35 @@ $('stop').addEventListener('click', () => {
     if (!link) return;
     link.command('feeder:stop');
     link.command('feedhold');
+    if (abortToolLengthStep('Stopped: the machine is in feed hold; reset or resume it from CNCjs.')) {
+        render();
+        return;
+    }
     say('Probing stopped: the machine is in feed hold. Reset or resume it from CNCjs.', 'warning');
     render();
 });
+
+// The wizard advances when a step is sent. A step that then does not finish (Stop,
+// alarm, reset, port closed) leaves what it saves missing or stale: an unfinished
+// Start goes back to ready, an unfinished Probe back to started, keeping Start's
+// saved position, spindle and modes. Returns whether a step was interrupted.
+function abortToolLengthStep(why) {
+    if (ui.tlPending === 'none') return false;
+    ui.toolLength = ui.tlPending.startsWith('start') ? 'ready' : 'started';
+    ui.tlPending = 'none';
+    const next = ui.toolLength === 'ready' ? 'run the tool length wizard again from Start' : 'probe the tool again; Start\'s saved position is kept';
+    say(`${why} The tool length step did not finish: ${next}.`, 'warning');
+    return true;
+}
+
+// A sent step is running once the feeder is busy with it and done when it drains.
+function followToolLengthFeed(feeder) {
+    if (feeder === 'busy' && ui.tlPending.endsWith('-sent')) ui.tlPending = ui.tlPending.replace('-sent', '-running');
+    if (feeder === 'idle' && ui.tlPending.endsWith('-running')) ui.tlPending = 'none';
+}
+
+// Grbl, grblHAL and FluidNC greet with this after a reset (Ctrl-X).
+const RESET_BANNER = /^Grbl(HAL)? \d/i;
 
 // data-tl: 'x' | 'y' | 'z' (sensor location) | 'safeZ', all machine mm
 const tlValue = (key) => (key === 'safeZ' ? settings.safeZ : settings.toolChangePosition[key]);
@@ -540,17 +574,20 @@ const toolLengthStep = (step) => {
     if (step === 'start') {
         if (ui.toolLength !== 'ready' || !send(routine.start, context)) return;
         ui.toolLength = 'started';
+        ui.tlPending = 'start-sent';
         restartConnectivityTest();
         say('Tool probe initiated.', 'info');
     }
     if (step === 'probe') {
         if (ui.connectivity !== 'confirmed' || !send(routine.probe, context)) return;
         ui.toolLength = 'probed';
+        ui.tlPending = 'probe-sent';
         say('Probing tool length.', 'info');
     }
     if (step === 'resume') {
         if (!send(routine.resume, context)) return;
         ui.toolLength = 'ready';
+        ui.tlPending = 'none';
         say('Returning to the starting position.', 'info');
     }
     render();
@@ -561,6 +598,7 @@ $('tl-resume').addEventListener('click', () => toolLengthStep('resume'));
 // Leaves the wizard without sending anything, so Start can store a new position.
 $('tl-cancel').addEventListener('click', () => {
     ui.toolLength = 'ready';
+    ui.tlPending = 'none';
     say(null);
     render();
 });
@@ -572,7 +610,10 @@ function onCncjs(name, ...args) {
         machine = { ...machine, link: state, linkMessage: message };
     }
     if (name === 'serialport:open') machine = { ...machine, portState: 'open' };
-    if (name === 'serialport:close') machine = { ...machine, portState: 'closed', activeState: null, touch: TOUCH_NONE };
+    if (name === 'serialport:close') {
+        machine = { ...machine, portState: 'closed', activeState: null, touch: TOUCH_NONE };
+        abortToolLengthStep('The port closed.');
+    }
     if (name === 'controller:settings') {
         machine = { ...machine, settings: args[1] ?? { settings: {} } };
         syncMachineStore();
@@ -593,10 +634,17 @@ function onCncjs(name, ...args) {
         const watching = ui.run === 'open' || ui.toolLength === 'started';
         if (watching) ui.connectivity = connectivityAfter({ connectivityTest: settings.probe.connectivityTest, confirmed: ui.connectivity, touch: machine.touch });
     }
+    if (name === 'controller:state' && machine.activeState === 'Alarm') abortToolLengthStep('The machine went into alarm.');
+    if (name === 'serialport:read') {
+        // every controller line comes here; only a reset banner matters
+        if (!RESET_BANNER.test(String(args[0] ?? ''))) return;
+        abortToolLengthStep('The controller was reset.');
+    }
     if (name === 'workflow:state') machine = { ...machine, workflowState: args[0] };
     if (name === 'feeder:status') {
         const status = args[0] ?? {};
         machine = { ...machine, feeder: status.queue > 0 || status.pending ? 'busy' : 'idle' };
+        followToolLengthFeed(machine.feeder);
     }
     render();
 }
@@ -607,6 +655,7 @@ function usePort(port) {
     link = null;
     ui.run = 'closed';
     ui.toolLength = 'ready';
+    ui.tlPending = 'none';
     machine = { ...NO_MACHINE, port, link: port ? 'connecting' : 'no-port' };
     syncMachineStore();
     setMachinePosition({});

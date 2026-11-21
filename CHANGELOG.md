@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-20
+
+- Tool length mode hides the touch plate selector and everything that only
+  applies to Zero: the Z/XYZ/XY/X/Y routines, corner, plate image, Probe button
+  and the plate-only settings (block/puck/AutoZero/BitZero thicknesses, Z offset,
+  tip diameter, XY settings). Its Settings list keeps what the wizard reads:
+  Fast find, Slow find, Retraction and Z max travel. A help line says it targets
+  a fixed toolsetter at the Sensor position and points to Zero's Z routine with
+  your touch plate for setting work Z. Switching back to Zero restores
+  everything.
+- Breaking for CNCjs macros that read `global.toolchange.PROBE_THICKNESS_MM`:
+  Tool length no longer writes it. gSender stores the selected plate's thickness
+  there for its own tool change macros; the wizard's G-code never reads it, and
+  Tool length mode has no plate any more. A macro that needs a plate thickness
+  should set its own value.
+- Stop now shows in Tool length mode too while CNCjs's feeder is running a
+  routine; it used to sit in the Zero section only.
+- The tool length wizard follows each step through CNCjs's feeder. If Stop, an
+  alarm (e.g. a probe that never touches), a controller reset or a closed port
+  cuts a step short, an unfinished Start goes back to Start and an unfinished
+  Probe asks to probe again, keeping Start's saved position, spindle and modes;
+  it no longer claims a length was stored. A finished wizard is left alone when
+  a later Zero routine is stopped.
+
 ## [0.1.1] - 2026-11-20
 
 - Safe Z must clear the sensor Z by 2 mm and, on a homed Grbl range, stay inside

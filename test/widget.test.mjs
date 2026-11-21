@@ -526,3 +526,135 @@ test('framed by CNCjs from another origin, the widget explains it cannot probe',
         await ctx.close();
     }
 });
+
+test('tool length mode hides the touch plate and Zero-only controls, and Zero brings them back', async () => {
+    const { ctx, page, errors } = await standalone();
+    try {
+        await page.getByText('Settings', { exact: true }).click();
+        const fields = () => page.locator('#fields label').allInnerTexts();
+        const zeroOnly = () => Promise.all([
+            page.getByLabel('Touch plate'),
+            page.getByRole('group', { name: 'Probing routine' }),
+            page.getByRole('group', { name: 'Corner' }),
+            page.locator('#probe-image'),
+            page.getByRole('button', { name: 'Probe', exact: true }),
+        ].map((el) => el.isVisible()));
+        const zeroFields = await fields();
+        assert.deepEqual(await zeroOnly(), [true, true, true, true, true]);
+        assert.ok(zeroFields.includes('Block thickness (mm)'), zeroFields.join());
+
+        for (const plate of ['Standard Block', 'Z Probe', '3D Probe', 'AutoZero', 'BitZero']) {
+            await page.getByLabel('Touch plate').selectOption(plate);
+            await page.getByRole('button', { name: 'Tool length', exact: true }).click();
+            assert.deepEqual(await zeroOnly(), [false, false, false, false, false], plate);
+            // only the settings the wizard reads: its feeds, retraction and the $132 stand-in
+            assert.deepEqual(await fields(), ['Fast find (mm/min)', 'Slow find (mm/min)', 'Retraction (mm)', 'Z max travel ($132) (mm)'], plate);
+            assert.equal(await page.getByRole('button', { name: 'Tool length', exact: true }).getAttribute('aria-pressed'), 'true');
+            assert.match(await page.locator('#tl-help').innerText(), /fixed toolsetter at the Sensor position.*use Zero and the Z routine with your touch plate selected/s);
+            // the connection test still gates the wizard's probe step
+            assert.equal(await page.getByLabel('Connection test').isVisible(), true);
+            await page.getByRole('button', { name: 'Zero', exact: true }).click();
+            assert.equal(await page.getByLabel('Touch plate').inputValue(), plate);
+        }
+        await page.getByLabel('Touch plate').selectOption('Standard Block');
+        assert.deepEqual(await zeroOnly(), [true, true, true, true, true]);
+        assert.deepEqual(await fields(), zeroFields);
+        assert.equal(await page.locator('#tl-help').isVisible(), false);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
+
+const wizardSetup = async () => {
+    const page = await embedded({ settings: { settings: { $132: '120' } } });
+    const { w, fire } = page;
+    await w.getByRole('button', { name: 'Tool length', exact: true }).click();
+    await w.getByLabel('Sensor Z').fill('-30');
+    await w.getByLabel('Connection test').uncheck();
+    const busy = () => fire('feeder:status', { hold: false, queue: 12, pending: true });
+    const idle = () => fire('feeder:status', { hold: false, queue: 0, pending: false });
+    const buttons = {
+        stop: w.getByRole('button', { name: 'Stop', exact: true }),
+        start: w.getByRole('button', { name: 'Start', exact: true }),
+        probe: w.getByRole('button', { name: 'Probe tool length' }),
+        resume: w.getByRole('button', { name: 'Resume' }),
+    };
+    // which wizard buttons are enabled
+    const enabled = async () => Object.fromEntries(await Promise.all(['start', 'probe', 'resume'].map(async (k) => [k, !(await buttons[k].isDisabled())])));
+    return { ...page, busy, idle, ...buttons, enabled };
+};
+
+test('embedded in CNCjs, Stop during Start sends the wizard back to Start', async () => {
+    const { ctx, w, emitted, errors, busy, idle, stop, start, enabled } = await wizardSetup();
+    try {
+        assert.equal(await stop.isVisible(), false);
+        await start.click();
+        await busy();
+        assert.equal(await stop.isVisible(), true);
+        await stop.click();
+        assert.ok((await emitted()).some((e) => e[0] === 'command' && e[2] === 'feeder:stop'));
+        await idle();
+        assert.equal(await stop.isVisible(), false);
+        assert.deepEqual(await enabled(), { start: true, probe: false, resume: false });
+        assert.match(await w.locator('#message').innerText(), /run the tool length wizard again from Start/);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('embedded in CNCjs, a Probe step cut short by Stop, alarm or reset keeps Start and asks to probe again', async () => {
+    const interruptions = {
+        stop: async (page) => page.stop.click(),
+        alarm: async (page) => page.fire('controller:state', 'Grbl', grblState({ activeState: 'Alarm' })),
+        reset: async (page) => page.fire('serialport:read', 'Grbl 4.1 [FluidNC v4.1.1 (wifi) \'$\' for help]'),
+    };
+    for (const [how, interrupt] of Object.entries(interruptions)) {
+        const page = await wizardSetup();
+        try {
+            await page.start.click();
+            await page.busy();
+            await page.idle();
+            await page.probe.click();
+            await page.busy();
+            await interrupt(page);
+            await page.idle();
+            await page.fire('controller:state', 'Grbl', grblState());
+            // Start's saved position, spindle and modes stand; no length was stored
+            assert.deepEqual(await page.enabled(), { start: false, probe: true, resume: false }, how);
+            assert.match(await page.w.locator('#message').innerText(), /probe the tool again; Start's saved position is kept/, how);
+            assert.doesNotMatch(await page.w.locator('#tl-note').innerText(), /Tool length stored/, how);
+            assert.deepEqual(page.errors, [], how);
+        } finally {
+            await page.ctx.close();
+        }
+    }
+});
+
+test('embedded in CNCjs, a finished wizard survives Stop, alarms and status lines from other routines', async () => {
+    const page = await wizardSetup();
+    try {
+        await page.start.click();
+        await page.busy();
+        await page.idle();
+        await page.probe.click();
+        await page.busy();
+        await page.idle();
+        // finished: Resume, or probe again
+        assert.deepEqual(await page.enabled(), { start: false, probe: true, resume: true });
+        // a Zero routine, stopped, then an alarm and ordinary controller lines
+        await page.busy();
+        await page.stop.click();
+        await page.idle();
+        await page.fire('controller:state', 'Grbl', grblState({ activeState: 'Alarm' }));
+        await page.fire('serialport:read', 'ok');
+        await page.fire('controller:state', 'Grbl', grblState());
+        assert.deepEqual(await page.enabled(), { start: false, probe: true, resume: true });
+        assert.match(await page.w.locator('#tl-note').innerText(), /Tool length stored/);
+        assert.match(await page.w.locator('#message').innerText(), /^Probing stopped/);
+        assert.deepEqual(page.errors, []);
+    } finally {
+        await page.ctx.close();
+    }
+});

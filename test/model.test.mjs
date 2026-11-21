@@ -215,6 +215,16 @@ test('the default sensor location counts as unset on every path, so Safe Z is ne
     assert.ok(toolLengthRoutine({ ...settings, toolChangePosition: { x: 0, y: 0, z: -30 } }).start);
 });
 
+test('tool length G-code does not depend on the hidden touch plate', () => {
+    setControllerSettings({ settings: { $22: '1', $132: '356' } });
+    const base = { ...defaultSettings(), toolChangePosition: { x: -10, y: -20, z: -30 } };
+    const routines = ['Standard Block', 'Z Probe', '3D Probe', 'AutoZero', 'BitZero'].map((plate) => toolLengthRoutine(withPlateType(base, plate)));
+    for (const routine of routines) assert.deepEqual(routine, routines[0]);
+    assert.ok(routines[0].start.every((line) => !line.includes('PROBE_THICKNESS_MM')));
+    // what the G-code reads is still there
+    assert.ok(routines[0].start.includes('%global.toolchange.PROBE_FEEDRATE=150'));
+});
+
 test('Safe Z checks only the sensor without homing or when the operator picks another Z range', () => {
     // homing off or unreported: Z0 is wherever Z was at power-on
     for (const reported of [{ $22: '0', $132: '100' }, { $132: '100' }]) {
