@@ -1,0 +1,43 @@
+{
+  "name": "cncjs-probe",
+  "version": "0.1.0",
+  "description": "Touch plate and tool length probing CNCjs custom widget, ported from gSender's Probe tool, that counts a FluidNC toolsetter (Pn:T) as a touch.",
+  "keywords": [
+    "cncjs",
+    "cnc",
+    "probe",
+    "touch-plate",
+    "g-code",
+    "grbl",
+    "fluidnc",
+    "widget"
+  ],
+  "license": "GPL-3.0-only",
+  "author": "Pedro Paulo Vezza Campos <pedro@vezza.com.br>",
+  "homepage": "https://github.com/pedropaulovc/cncjs-probe#readme",
+  "bugs": {
+    "url": "https://github.com/pedropaulovc/cncjs-probe/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pedropaulovc/cncjs-probe.git"
+  },
+  "exports": {
+    "./index.html": "./web/index.html",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "web"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "pack:check": "npm pack --dry-run",
+    "test": "node --test"
+  },
+  "type": "module",
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}
