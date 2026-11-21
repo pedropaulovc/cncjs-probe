@@ -37,9 +37,10 @@ grblHAL and FluidNC).
 Opened on its own (any static server on the `web` directory), the page only
 previews the G-code.
 
-FluidNC does not report `$132` (Z max travel) or `$22` (homing) in `$$`. Fill in
-**Settings → Z max travel ($132)** to use tool length; without `$22` the Z probe
-distance is not limited by soft limits.
+FluidNC does not report `$132` (Z max travel), `$22` (homing) or `$13` (report
+inches) in `$$`. Fill in **Settings → Z max travel ($132)** to use tool length;
+without `$22` the Z probe distance is not limited by soft limits. The widget
+assumes positions are reported in mm, so leave FluidNC's `report_inches` off.
 
 ## Safety
 

@@ -14,3 +14,7 @@
 - Shows the G-code before it runs; keeps settings in the browser; follows the
   port selected in CNCjs and only starts when the controller is idle and no
   program is running.
+- Fixes over gSender for running under CNCjs: on a Grbl reporting inches
+  (`$13=1`), BitZero centring and the tool length wizard's saved position and
+  `TOOL_OFFSET` use mm, as gSender's server makes them; on G20 machines BitZero
+  uses its thickness settings instead of falling back to 13 / 15.5 mm.

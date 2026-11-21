@@ -15,13 +15,7 @@
  * ./machine-store.js (filled from CNCjs). The G-code is unchanged.
  */
 import * as reduxStore from './machine-store.js';
-
-const get = (object, path, defaultValue) => {
-    const value = path
-        .split('.')
-        .reduce((node, key) => (node == null ? undefined : node[key]), object);
-    return value === undefined ? defaultValue : value;
-};
+import { get } from './machine-store.js';
 
 // $132 is max z travel, if soft limits ($20) enabled we need to make sure probe distance will not exceed max limits
 export const calculateMaxZProbeDistance = (_zProbeDistance = 30, position) => {

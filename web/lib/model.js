@@ -7,7 +7,6 @@ import {
     PROBE_TYPE_AUTO,
     PROBE_TYPE_DIAMETER,
     PROBE_TYPE_TIP,
-    TOUCHPLATE_TYPE_AUTOZERO,
     TOUCHPLATE_TYPE_BITZERO,
     TOUCHPLATE_TYPE_ZERO,
 } from './constants.js';
@@ -23,8 +22,11 @@ import {
     generatePossibleProbeCommands,
     generateProbeCommands,
     getProbeSettings,
+    offersAutoAndTip,
 } from './probe-options.js';
 import createWizard from './probe-tool-length.js';
+import { positionsInMm } from './cncjs-adapt.js';
+import { get, getState } from './machine-store.js';
 import { convertToImperial, in2mm } from './units.js';
 
 export const STORAGE_KEY = 'cncjs-probe:settings';
@@ -98,8 +100,6 @@ export const selectedCommand = (settings) => {
     return commands.find((c) => c.id === settings.command) ?? commands[0];
 };
 
-const offersAutoAndTip = (plateType) => plateType === TOUCHPLATE_TYPE_AUTOZERO || plateType === TOUCHPLATE_TYPE_BITZERO;
-
 // index.tsx onStoreChange: the Z Probe plate only probes Z; leaving a plate that
 // probed with Auto or Tip goes back to a tool diameter, with gSender's default tool.
 export const withPlateType = (settings, plateType) => {
@@ -138,6 +138,7 @@ export const effectiveControllerSettings = (settings, machineSettings) => {
 export const zeroRoutine = (settings, machine) => {
     const units = unitsOf(settings, machine);
     const reported = machine.settings?.settings ?? {};
+    const $13 = reported.$13 ?? '0';
     const code = generateProbeCommands({
         probeCommand: selectedCommand(settings),
         units,
@@ -146,12 +147,14 @@ export const zeroRoutine = (settings, machine) => {
         toolDiameter: toolDiameterOf(settings, units),
         probeType: settings.probeType,
         direction: Number(settings.probe.direction),
-        $13: reported.$13 ?? '0',
+        $13,
         $22: reported.$22 ?? '0',
         firmware: machine.type,
         distance: machine.distance,
     });
-    const lines = gcodeSafe(code, 'G21', machine.modalUnits);
+    // BitZero centres on captured positions under G21
+    const adapted = settings.probeProfile.touchplateType === TOUCHPLATE_TYPE_BITZERO ? positionsInMm(code, $13) : code;
+    const lines = gcodeSafe(adapted, 'G21', machine.modalUnits);
     if (!lines) return { reason: 'Waiting for the machine to report its units (G20/G21).' };
     return { lines: lines.filter((line) => typeof line === 'string') };
 };
@@ -182,9 +185,11 @@ export const toolLengthRoutine = (settings) => {
     if (!Number.isFinite(value) || value <= 0) {
         return { reason: 'No room to probe: Z max travel ($132) is unknown or the sensor Z is past it. Set Z max travel under Settings.' };
     }
+    // the wizard keeps positions for G21 moves
+    const $13 = get(getState(), 'controller.settings.settings.$13', '0');
     return {
-        start,
-        probe: wizard.steps[0].substeps[0].actions[0].gcodeLines,
-        resume: wizard.steps[1].substeps[0].actions[0].gcodeLines,
+        start: positionsInMm(start, $13),
+        probe: positionsInMm(wizard.steps[0].substeps[0].actions[0].gcodeLines, $13),
+        resume: positionsInMm(wizard.steps[1].substeps[0].actions[0].gcodeLines, $13),
     };
 };

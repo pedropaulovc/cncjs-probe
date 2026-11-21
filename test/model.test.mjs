@@ -96,6 +96,15 @@ test('tool length needs Z max travel; the widget setting stands in when $132 is 
     assert.ok(toolLengthRoutine(withTravel).start.includes('%global.toolchange.PROBE_DISTANCE=118.000'));
 });
 
+test('on a G20 machine BitZero uses its thickness settings, in mm as its G21 routine needs', () => {
+    setControllerSettings({ settings: {} });
+    const base = withPlateType(defaultSettings(), 'BitZero');
+    const settings = { ...base, command: 'XYZ Touch', probeProfile: { ...base.probeProfile, zThickness: { ...base.probeProfile.zThickness, bitZero: 12.7, bitZeroZOnly: 15 } } };
+    const machine = { type: 'Grbl', modalUnits: 'G20', distance: 'G90', settings: { settings: {} } };
+    assert.ok(zeroRoutine(settings, machine).lines.includes('%INSET_THICKNESS=12.7'));
+    assert.ok(zeroRoutine({ ...settings, command: 'Z Touch' }, machine).lines.includes('%PROBE_THICKNESS=15'));
+});
+
 test('the tool length context gives CNCjs gSender\'s programFeedrate and spindleRate', () => {
     assert.deepEqual(toolchangeContext({ feedrate: 1200, spindle: 18000 }), { programFeedrate: 'F1200', spindleRate: '18000' });
 });

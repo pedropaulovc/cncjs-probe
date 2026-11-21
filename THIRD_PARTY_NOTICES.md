@@ -27,9 +27,12 @@ unchanged, which `test/parity.test.mjs` checks against the upstream sources.
 
 Changes from gSender: touch detection also counts the toolsetter input
 (`Pn:T`); the widget talks to CNCjs over its socket.io and passes the
-`programFeedrate`/`spindleRate` macro values CNCjs lacks; settings live in the
-browser's local storage; a Z max travel setting stands in for an unreported
-`$132`.
+`programFeedrate`/`spindleRate` macro values CNCjs lacks; when Grbl reports
+inches (`$13=1`), BitZero and tool length scale the positions they capture to
+mm, which gSender's server does for every routine and CNCjs does not
+(`web/lib/cncjs-adapt.js`); on G20 machines BitZero uses its thickness settings
+instead of gSender's 13 / 15.5 mm fallbacks; settings live in the browser's
+local storage; a Z max travel setting stands in for an unreported `$132`.
 
 ## CNCjs (tests only)
 

@@ -18,3 +18,11 @@ export const setControllerSettings = (settings) => {
 export const setMachinePosition = (mpos) => {
     state = { controller: { ...state.controller, mpos: mpos || {} } };
 };
+
+// Stands in for lodash/get, which the ported modules use to read this store.
+export const get = (object, path, defaultValue) => {
+    const value = path
+        .split('.')
+        .reduce((node, key) => (node == null ? undefined : node[key]), object);
+    return value === undefined ? defaultValue : value;
+};

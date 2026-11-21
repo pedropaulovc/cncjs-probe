@@ -202,15 +202,18 @@ export const calcToolDiameter = (probeType, units, currentTool) => {
     ];
 };
 
+// ProbeDiameter.tsx / ProbeImage.tsx: AutoZero and BitZero plates find the tool
+// themselves, so they also offer Auto and Tip.
+export const offersAutoAndTip = (touchplateType) =>
+    touchplateType === TOUCHPLATE_TYPE_AUTOZERO ||
+    touchplateType === TOUCHPLATE_TYPE_BITZERO;
+
 // ProbeDiameter.tsx: the diameter list. AutoZero and BitZero also offer Auto and
 // Tip; numbers sort ascending after the names.
 export const toolDiameterOptions = (tools, units, touchplateType) => {
     const key = units === METRIC_UNITS ? 'metricDiameter' : 'imperialDiameter';
     const baseOptions = [];
-    if (
-        touchplateType === TOUCHPLATE_TYPE_AUTOZERO ||
-        touchplateType === TOUCHPLATE_TYPE_BITZERO
-    ) {
+    if (offersAutoAndTip(touchplateType)) {
         baseOptions.push(
             { value: PROBE_TYPE_AUTO, label: PROBE_TYPE_AUTO, tool: null },
             { value: PROBE_TYPE_TIP, label: PROBE_TYPE_TIP, tool: null },
@@ -317,6 +320,10 @@ export const generateProbeCommands = ({
             ),
             zProbe: convertToImperial(touchplate.zThickness.zProbe),
             probe3D: convertToImperial(touchplate.zThickness.probe3D),
+            // Not in gSender, which drops these here so BitZero falls back to
+            // 13 / 15.5 mm on G20 machines. Its routine forces G21, so pass mm.
+            bitZero: touchplate.zThickness.bitZero,
+            bitZeroZOnly: touchplate.zThickness.bitZeroZOnly,
         };
         xyThickness = convertToImperial(touchplate.xyThickness);
         feedrate = convertToImperial(probeFeedrate);

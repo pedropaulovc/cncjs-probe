@@ -9,17 +9,11 @@
  * 3 of the License. It is distributed WITHOUT ANY WARRANTY; see LICENSE.
  *
  * Modified: ported to a browser ES module; reads ./machine-store.js (filled
- * from CNCjs) instead of gSender's redux store, and a small `get` replaces
+ * from CNCjs) instead of gSender's redux store, with its `get` in place of
  * lodash/get.
  */
 import * as reduxStore from './machine-store.js';
-
-const get = (object, path, defaultValue) => {
-    const value = path
-        .split('.')
-        .reduce((node, key) => (node == null ? undefined : node[key]), object);
-    return value === undefined ? defaultValue : value;
-};
+import { get } from './machine-store.js';
 
 const OFFSET = 1; // 1mm offset on all travel movements for soft limits.
 
