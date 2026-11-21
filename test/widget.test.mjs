@@ -550,7 +550,7 @@ test('tool length mode hides the touch plate and Zero-only controls, and Zero br
             // only the settings the wizard reads: its feeds, retraction and the $132 stand-in
             assert.deepEqual(await fields(), ['Fast find (mm/min)', 'Slow find (mm/min)', 'Retraction (mm)', 'Z max travel ($132) (mm)'], plate);
             assert.equal(await page.getByRole('button', { name: 'Tool length', exact: true }).getAttribute('aria-pressed'), 'true');
-            assert.match(await page.locator('#tl-help').innerText(), /fixed toolsetter at the Sensor position.*Zero → Z Probe/s);
+            assert.match(await page.locator('#tl-help').innerText(), /fixed toolsetter at the Sensor position.*use Zero and the Z routine with your touch plate selected/s);
             // the connection test still gates the wizard's probe step
             assert.equal(await page.getByLabel('Connection test').isVisible(), true);
             await page.getByRole('button', { name: 'Zero', exact: true }).click();
@@ -566,18 +566,33 @@ test('tool length mode hides the touch plate and Zero-only controls, and Zero br
     }
 });
 
-test('embedded in CNCjs, Stop shows in tool length mode while the feeder runs', async () => {
+test('embedded in CNCjs, Stop shows in tool length mode and sends the wizard back to Start', async () => {
     const { ctx, w, fire, emitted, errors } = await embedded({ settings: { settings: { $132: '120' } } });
     try {
         await w.getByRole('button', { name: 'Tool length', exact: true }).click();
+        await w.getByLabel('Sensor Z').fill('-30');
+        await w.getByLabel('Connection test').uncheck();
         const stop = w.getByRole('button', { name: 'Stop', exact: true });
+        const start = w.getByRole('button', { name: 'Start', exact: true });
+        const probe = w.getByRole('button', { name: 'Probe tool length' });
+        const resume = w.getByRole('button', { name: 'Resume' });
         assert.equal(await stop.isVisible(), false);
+        // Start, then Probe, and Stop while the probe block is still feeding
+        await start.click();
+        await fire('feeder:status', { hold: false, queue: 0, pending: false });
+        await probe.click();
         await fire('feeder:status', { hold: false, queue: 12, pending: true });
         assert.equal(await stop.isVisible(), true);
         await stop.click();
         assert.ok((await emitted()).some((e) => e[0] === 'command' && e[2] === 'feeder:stop'));
         await fire('feeder:status', { hold: false, queue: 0, pending: false });
         assert.equal(await stop.isVisible(), false);
+        // nothing was stored: no Resume, and Probe waits for a fresh Start
+        assert.equal(await resume.isDisabled(), true);
+        assert.equal(await probe.isDisabled(), true);
+        assert.equal(await start.isDisabled(), false);
+        assert.match(await w.locator('#message').innerText(), /run the tool length wizard again from Start/);
+        assert.doesNotMatch(await w.locator('#tl-note').innerText(), /Tool length stored/);
         assert.deepEqual(errors, []);
     } finally {
         await ctx.close();

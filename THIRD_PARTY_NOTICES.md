@@ -36,9 +36,10 @@ settings instead of gSender's 13 / 15.5 mm fallbacks; the tool length wizard
 takes its safe height from a Safe Z setting (machine mm, default -10, checked
 against the sensor Z and, when homed, Z travel and the homing pull-off) instead
 of gSender's '-0.5' for `$13=1`, which runs under G21 as -0.5 mm; removing the
-last tool falls back to Auto only on plates
-that offer it; settings live in the browser's local storage; a Z max travel
-setting stands in for an unreported `$132`.
+last tool falls back to Auto only on plates that offer it; Tool length mode has
+no touch plate and does not store `global.toolchange.PROBE_THICKNESS_MM`, which
+its G-code never reads; settings live in the browser's local storage; a Z max
+travel setting stands in for an unreported `$132`.
 
 ## CNCjs (tests only)
 
