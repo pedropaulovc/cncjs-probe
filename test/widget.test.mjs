@@ -313,6 +313,106 @@ test('embedded in CNCjs, the tool length steps send gSender\'s wizard with its c
     }
 });
 
+test('embedded in CNCjs, nothing can start while CNCjs is still feeding a routine', async () => {
+    const { ctx, w, fire, errors } = await embedded({ settings: { settings: { $132: '120' } } });
+    try {
+        const probe = w.getByRole('button', { name: 'Probe', exact: true });
+        assert.equal(await probe.isDisabled(), false);
+        // between moves the machine reports Idle while the feeder still holds lines
+        await fire('feeder:status', { hold: false, queue: 12, pending: true });
+        assert.equal(await probe.isDisabled(), true);
+        assert.equal(await w.getByRole('button', { name: 'Stop' }).isVisible(), true);
+        await fire('feeder:status', { hold: false, queue: 0, pending: false });
+        assert.equal(await probe.isDisabled(), false);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('embedded in CNCjs, tool length Start runs once per wizard and Cancel starts over', async () => {
+    const { ctx, w, emitted, errors } = await embedded({ settings: { settings: { $132: '120' } } });
+    try {
+        await w.getByRole('button', { name: 'Tool length', exact: true }).click();
+        const start = w.getByRole('button', { name: 'Start', exact: true });
+        const cancel = w.locator('#tl-cancel');
+        assert.equal(await cancel.isDisabled(), true);
+        await start.click();
+        assert.equal(await start.isDisabled(), true);
+        await cancel.click();
+        assert.equal(await start.isDisabled(), false);
+        assert.equal((await emitted()).filter((e) => e[0] === 'command').length, 1);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('embedded in CNCjs, status reports keep a selection in the G-code preview', async () => {
+    const { ctx, w, fire, errors } = await embedded();
+    try {
+        const pre = w.locator('#gcode');
+        await pre.evaluate((el) => window.getSelection().selectAllChildren(el));
+        await fire('controller:state', 'Grbl', grblState({ pinState: 'P' }));
+        assert.ok((await pre.evaluate(() => window.getSelection().toString())).includes('G38.2'));
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('removing the last tool on AutoZero falls back to Auto', async () => {
+    const { ctx, page, errors } = await standalone();
+    try {
+        await page.getByLabel('Touch plate').selectOption('AutoZero');
+        await page.getByRole('button', { name: 'XYZ', exact: true }).click();
+        const diameter = page.getByLabel('Tool diameter', { exact: true });
+        await diameter.selectOption('6.35');
+        for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Remove' }).click();
+        assert.deepEqual(await diameter.locator('option').allInnerTexts(), ['Auto', 'Tip']);
+        assert.equal(await diameter.inputValue(), 'Auto');
+        assert.match(await page.locator('#gcode').innerText(), /AZ Probe XYZ Auto/);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('with site storage blocked the widget still works for the page', async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1000, height: 1400 } });
+    try {
+        await serveWidget(ctx, () => []);
+        await ctx.addInitScript(() => Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('blocked', 'SecurityError'); } }));
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(e.message));
+        await page.goto('http://widget.test/probe/');
+        await page.locator('#gcode').filter({ hasText: 'G38.2' }).waitFor();
+        await page.getByRole('button', { name: 'XYZ', exact: true }).click();
+        assert.match(await page.locator('#gcode').innerText(), /G10 L20 P0 X0Y0Z0/);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('an invalid entry\'s tooltip goes once the field shows a valid value again', async () => {
+    const { ctx, page, errors } = await standalone();
+    try {
+        await page.getByText('Settings', { exact: true }).click();
+        const field = page.getByLabel('Block thickness');
+        const help = await field.getAttribute('title');
+        await field.fill('-3');
+        assert.equal(await field.getAttribute('aria-invalid'), 'true');
+        await field.blur();
+        assert.equal(await field.inputValue(), '15');
+        assert.equal(await field.getAttribute('title'), help);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
+
 test('framed by CNCjs from another origin, the widget explains it cannot probe', async () => {
     const { ctx, w, errors } = await embedded({ widget: 'http://widget.test' });
     try {

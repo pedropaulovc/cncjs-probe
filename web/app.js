@@ -13,7 +13,7 @@ import {
     TOUCHPLATE_TYPE_STANDARD,
     TOUCHPLATE_TYPE_ZERO,
 } from './lib/constants.js';
-import { canClick, newTool, toolDiameterOptions } from './lib/probe-options.js';
+import { canClick, newTool, offersAutoAndTip, toolDiameterOptions } from './lib/probe-options.js';
 import {
     availableCommands,
     effectiveControllerSettings,
@@ -39,7 +39,15 @@ const token = new URLSearchParams(location.search).get('token');
 const embedding = embeddingOf(window, token);
 document.documentElement.dataset.embedding = embedding;
 
-let settings = loadSettings(window.localStorage);
+// Reading localStorage throws when the browser blocks site storage; settings then last for the page.
+const storage = (() => {
+    try {
+        return window.localStorage;
+    } catch {
+        return null;
+    }
+})();
+let settings = loadSettings(storage);
 
 // What CNCjs reports. link: standalone | foreign | no-port | connecting | joined | not-open | error
 const NO_MACHINE = {
@@ -86,13 +94,13 @@ const clickable = () => canClick({
     workflowState: machine.workflowState,
     type: machine.type,
     activeState: machine.activeState,
-});
+}) && machine.feeder !== 'busy';
 
 const syncMachineStore = () => setControllerSettings(effectiveControllerSettings(settings, machine.settings));
 
 const update = (next) => {
     settings = next;
-    saveSettings(window.localStorage, settings);
+    saveSettings(storage, settings);
     syncMachineStore();
     render();
 };
@@ -102,7 +110,6 @@ const say = (text, kind = 'info') => {
 };
 
 // ---------- settings fields (gSender's Config > Probe, SettingsMenu.ts) ----------
-const isAutoOrBit = (plate) => plate === TOUCHPLATE_TYPE_AUTOZERO || plate === TOUCHPLATE_TYPE_BITZERO;
 const zThickness = (key) => ({
     get: (s) => s.probeProfile.zThickness[key],
     set: (s, v) => ({ ...s, probeProfile: { ...s.probeProfile, zThickness: { ...s.probeProfile.zThickness, [key]: v } } }),
@@ -117,17 +124,17 @@ const FIELDS = [
     { id: 'standardBlock', label: 'Block thickness', kind: 'len', ...zThickness('standardBlock'), hidden: (p) => p !== TOUCHPLATE_TYPE_STANDARD, title: 'Plate thickness where the bit touches when Z-axis probing using the Standard Block plate. (Default 15)' },
     { id: 'autoZero', label: 'AutoZero thickness', kind: 'len', ...zThickness('autoZero'), hidden: (p) => p !== TOUCHPLATE_TYPE_AUTOZERO, title: 'Plate thickness where the bit touches when Z-axis probing using the AutoZero plate. (Default 5)' },
     { id: 'zProbe', label: 'Puck thickness', kind: 'len', ...zThickness('zProbe'), hidden: (p) => p !== TOUCHPLATE_TYPE_ZERO, title: 'Plate thickness where the bit touches when Z-axis probing when using the Z Probe plate. (Default 15)' },
-    { id: 'probe3D', label: 'Z offset', kind: 'len', allowNegative: true, allowZero: true, ...zThickness('probe3D'), hidden: (p) => p !== TOUCHPLATE_TYPE_3D, title: 'Adjust to improve the Z zeroing accuracy of your probe. (Default 0)' },
+    { id: 'probe3D', label: 'Z offset', kind: 'len', range: 'any', ...zThickness('probe3D'), hidden: (p) => p !== TOUCHPLATE_TYPE_3D, title: 'Adjust to improve the Z zeroing accuracy of your probe. (Default 0)' },
     { id: 'bitZero', label: 'BitZero thickness (XYZ)', kind: 'len', ...zThickness('bitZero'), hidden: (p) => p !== TOUCHPLATE_TYPE_BITZERO, title: 'Plate thickness for XYZ probing where the bit touches the inset surface inside the bore. (Default 13)' },
     { id: 'bitZeroZOnly', label: 'BitZero thickness (Z-only)', kind: 'len', ...zThickness('bitZeroZOnly'), hidden: (p) => p !== TOUCHPLATE_TYPE_BITZERO, title: 'Plate thickness for Z-only probing where the probe is placed flat on the surface. (Default 15.5)' },
     { id: 'xyThickness', label: 'XY thickness', kind: 'len', get: (s) => s.probeProfile.xyThickness, set: (s, v) => ({ ...s, probeProfile: { ...s.probeProfile, xyThickness: v } }), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_STANDARD, title: 'Plate thickness where the bit touches when X/Y-axis probing. (Default 10)' },
     { id: 'xyRetract3D', label: 'XY retract', kind: 'len', ...probeSetting('xyRetract3D'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_3D, title: 'How much extra to move off the surface when probing. (Default 10)' },
-    { id: 'zProbeDistance', label: 'Z probe distance', kind: 'len', ...probeSetting('zProbeDistance'), hidden: (p, mode) => mode !== 'zero' || isAutoOrBit(p), title: 'Movement in Z before it gives up on probing. (Reduce this value if you get a soft limit alarm 2 when probing, Default 30)' },
-    { id: 'probeFastFeedrate', label: 'Fast find', kind: 'feed', ...probeSetting('probeFastFeedrate'), hidden: (p, mode) => mode === 'zero' && isAutoOrBit(p), title: 'Probe speed before the first touch-off. (Default 150)' },
-    { id: 'probeFeedrate', label: 'Slow find', kind: 'feed', ...probeSetting('probeFeedrate'), hidden: (p, mode) => mode === 'zero' && isAutoOrBit(p), title: 'Speed for the more accurate second touch-off. (Default 75)' },
-    { id: 'retractionDistance', label: 'Retraction', kind: 'len', ...probeSetting('retractionDistance'), hidden: (p, mode) => mode === 'zero' && isAutoOrBit(p), title: 'How far the bit moves away after a successful touch. (Default 2)' },
-    { id: 'probeMovementSpeed', label: 'Probe Movement Speed', kind: 'feed', allowZero: true, ...probeSetting('probeMovementSpeed'), hidden: (p, mode) => mode !== 'zero' || p === TOUCHPLATE_TYPE_BITZERO, title: 'Feed rate for retract/reposition moves during probing. If 0, these moves use rapid (G0). If set, they use a controlled feed move (G1) at this speed instead. (Default 0)' },
-    { id: 'zRetractNormal', label: 'Final Z retract', kind: 'len', min: 1, ...probeSetting('zRetractNormal'), hidden: (p, mode) => mode !== 'zero' || isAutoOrBit(p), title: 'How far to move away in the Z-axis at the end of the routine. (Default 2)' },
+    { id: 'zProbeDistance', label: 'Z probe distance', kind: 'len', ...probeSetting('zProbeDistance'), hidden: (p, mode) => mode !== 'zero' || offersAutoAndTip(p), title: 'Movement in Z before it gives up on probing. (Reduce this value if you get a soft limit alarm 2 when probing, Default 30)' },
+    { id: 'probeFastFeedrate', label: 'Fast find', kind: 'feed', ...probeSetting('probeFastFeedrate'), hidden: (p, mode) => mode === 'zero' && offersAutoAndTip(p), title: 'Probe speed before the first touch-off. (Default 150)' },
+    { id: 'probeFeedrate', label: 'Slow find', kind: 'feed', ...probeSetting('probeFeedrate'), hidden: (p, mode) => mode === 'zero' && offersAutoAndTip(p), title: 'Speed for the more accurate second touch-off. (Default 75)' },
+    { id: 'retractionDistance', label: 'Retraction', kind: 'len', ...probeSetting('retractionDistance'), hidden: (p, mode) => mode === 'zero' && offersAutoAndTip(p), title: 'How far the bit moves away after a successful touch. (Default 2)' },
+    { id: 'probeMovementSpeed', label: 'Probe Movement Speed', kind: 'feed', range: 'nonNegative', ...probeSetting('probeMovementSpeed'), hidden: (p, mode) => mode !== 'zero' || p === TOUCHPLATE_TYPE_BITZERO, title: 'Feed rate for retract/reposition moves during probing. If 0, these moves use rapid (G0). If set, they use a controlled feed move (G1) at this speed instead. (Default 0)' },
+    { id: 'zRetractNormal', label: 'Final Z retract', kind: 'len', min: 1, ...probeSetting('zRetractNormal'), hidden: (p, mode) => mode !== 'zero' || offersAutoAndTip(p), title: 'How far to move away in the Z-axis at the end of the routine. (Default 2)' },
     { id: 'zRetractAuto', label: 'Final Z retract', kind: 'len', min: 1, ...probeSetting('zRetractAuto'), hidden: (p, mode) => mode !== 'zero' || p !== TOUCHPLATE_TYPE_AUTOZERO, title: 'How far to move away in the Z-axis at the end of the routine. (Default 1)' },
     { id: 'zMaxTravel', label: 'Z max travel ($132)', kind: 'mm', optional: true, get: (s) => s.zMaxTravel, set: (s, v) => ({ ...s, zMaxTravel: v }), hidden: () => reported().$132 !== undefined, title: 'Your controller does not report $132 (FluidNC does not). Z travel from home to the bottom, used to limit probe moves like gSender does.' },
 ];
@@ -148,8 +155,10 @@ const parsedValue = (field, text) => {
     if (trimmed === '' && field.optional) return { value: null };
     const n = Number(trimmed);
     if (trimmed === '' || !Number.isFinite(n)) return { error: 'Enter a number.' };
-    if (n < 0 && !field.allowNegative) return { error: 'Must not be negative.' };
-    if (n === 0 && !field.allowZero && !field.allowNegative) return { error: 'Must be more than 0.' };
+    // range: 'positive' (default) | 'nonNegative' | 'any'
+    const range = field.range ?? 'positive';
+    if (n < 0 && range !== 'any') return { error: 'Must not be negative.' };
+    if (n === 0 && range === 'positive') return { error: 'Must be more than 0.' };
     const mm = field.kind === 'mm' ? n : fromDisplay(n, units());
     if (field.min !== undefined && mm < field.min) return { error: `At least ${toDisplay(field.min, units())} ${unitLabel(field.kind)}.` };
     return { value: mm };
@@ -187,6 +196,7 @@ function renderFields() {
         if (document.activeElement === input) continue;
         input.value = shownValue(field);
         input.removeAttribute('aria-invalid');
+        input.title = field.title;
     }
 }
 
@@ -212,7 +222,7 @@ const IMAGES = {
     XY3D: '3D-XY.gif', XYZ3D: '3D-XYZ.gif', X3D: '3D-X.gif', Y3D: '3D-Y.gif',
 };
 const probeImage = (plate, id) => {
-    if (plate === TOUCHPLATE_TYPE_AUTOZERO || plate === TOUCHPLATE_TYPE_BITZERO) {
+    if (offersAutoAndTip(plate)) {
         return id === 'Z Touch' ? IMAGES.AutoZ : IMAGES.AutoXYZ;
     }
     if (plate === TOUCHPLATE_TYPE_ZERO) return IMAGES.ZOnly;
@@ -324,7 +334,8 @@ function renderToolLength(routine) {
     }
     const ok = clickable() && !routine.reason;
     $('tl-here').disabled = machine.link !== 'joined' || !machine.mpos || machine.mpos.z === undefined;
-    $('tl-start').disabled = !ok;
+    $('tl-start').disabled = !ok || ui.toolLength !== 'ready';
+    $('tl-cancel').disabled = ui.toolLength === 'ready';
     $('tl-probe').disabled = !ok || ui.toolLength === 'ready' || ui.connectivity !== 'confirmed';
     $('tl-resume').disabled = !ok || ui.toolLength !== 'probed';
     const note = routine.reason
@@ -384,23 +395,28 @@ function render() {
     renderCode(zero, toolLength);
 }
 
+// Assigned only on change: CNCjs status reports re-render several times a second,
+// and rewriting the text would clear a selection in the preview.
+const setText = (el, text) => {
+    if (el.textContent !== text) el.textContent = text;
+};
 function renderCode(zero, toolLength) {
     const assumed = machine.link === 'joined' ? '' : ` Without a machine this assumes Grbl in ${settings.previewUnits === METRIC_UNITS ? 'G21' : 'G20'}, G90.`;
     if (settings.mode === 'zero') {
-        $('code-note').textContent = zero.reason ?? `Sent to CNCjs when you start the probe.${assumed}`;
-        $('gcode').textContent = zero.lines ? zero.lines.join('\n') : '';
+        setText($('code-note'), zero.reason ?? `Sent to CNCjs when you start the probe.${assumed}`);
+        setText($('gcode'), zero.lines ? zero.lines.join('\n') : '');
         return;
     }
-    $('code-note').textContent = toolLength.reason ?? 'Each step sends its block. G-code expressions are evaluated by CNCjs.';
+    setText($('code-note'), toolLength.reason ?? 'Each step sends its block. G-code expressions are evaluated by CNCjs.');
     if (toolLength.reason) {
-        $('gcode').textContent = '';
+        setText($('gcode'), '');
         return;
     }
-    $('gcode').textContent = [
+    setText($('gcode'), [
         '; Start', ...toolLength.start,
         '', '; Probe tool length', ...toolLength.probe,
         '', '; Resume', ...toolLength.resume,
-    ].join('\n');
+    ].join('\n'));
 }
 
 // ---------- actions ----------
@@ -463,7 +479,12 @@ $('diameter-delete').addEventListener('click', () => {
     const tools = settings.tools.filter((t) => String(t[diameterKey()]) !== value);
     const first = tools[0];
     const next = { ...settings, tools };
-    update(first ? withDiameterChoice(next, String(first[diameterKey()]), first) : next);
+    if (first) {
+        update(withDiameterChoice(next, String(first[diameterKey()]), first));
+        return;
+    }
+    // only Auto and Tip are left, which happens on plates that offer them
+    update(withDiameterChoice(next, PROBE_TYPE_AUTO, null));
 });
 
 // gSender's startConnectivityTest: watching starts over each time the dialog opens.
@@ -520,7 +541,7 @@ const toolLengthStep = (step) => {
     if (routine.reason || !clickable()) return;
     const context = toolchangeContext(machine.parserstate);
     if (step === 'start') {
-        if (!send(routine.start, context)) return;
+        if (ui.toolLength !== 'ready' || !send(routine.start, context)) return;
         ui.toolLength = 'started';
         restartConnectivityTest();
         say('Tool probe initiated.', 'info');
@@ -540,6 +561,12 @@ const toolLengthStep = (step) => {
 $('tl-start').addEventListener('click', () => toolLengthStep('start'));
 $('tl-probe').addEventListener('click', () => toolLengthStep('probe'));
 $('tl-resume').addEventListener('click', () => toolLengthStep('resume'));
+// Leaves the wizard without sending anything, so Start can store a new position.
+$('tl-cancel').addEventListener('click', () => {
+    ui.toolLength = 'ready';
+    say(null);
+    render();
+});
 
 // ---------- CNCjs ----------
 function onCncjs(name, ...args) {
