@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- Safe Z must clear the sensor Z by 2 mm and, on a homed Grbl range, stay inside
+  Z travel (`$132`); the pull-off check follows `$23`'s Z homing direction and
+  only applies with homing on (`$22=1`). With homing off or positive machine Z
+  (FluidNC `mpos_mm`), only the sensor clearance is checked, with a note.
+- BitZero on a Grbl reporting inches sets the machine's units once at the end
+  instead of capturing them at run time; G20 machines no longer get a second
+  `G20`.
+
 ## [0.1.0] - 2026-11-20
 
 - First release: gSender's Probe tool as a CNCjs custom widget, ported from

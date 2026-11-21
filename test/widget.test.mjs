@@ -216,6 +216,10 @@ test('embedded with FluidNC 4.x settings, tool length uses $132 and a visible Sa
         await safeZ.fill('-0.5');
         assert.match(await w.locator('#code-note').innerText(), /pull-off \(1 mm\)/);
         assert.equal(await start.isDisabled(), true);
+        // at or below the sensor approach height the tool would cross into the sensor
+        await safeZ.fill('-29');
+        assert.match(await w.locator('#code-note').innerText(), /2 mm above the sensor Z \(-30\)/);
+        assert.equal(await start.isDisabled(), true);
         await safeZ.fill('-20');
         assert.match(await code(), /%global\.toolchange\.Z_SAFE_HEIGHT=-20\n/);
         assert.equal(await start.isDisabled(), false);
@@ -362,6 +366,7 @@ test('embedded in CNCjs, tool length Start runs once per wizard and Cancel start
     const { ctx, w, emitted, errors } = await embedded({ settings: { settings: { $132: '120' } } });
     try {
         await w.getByRole('button', { name: 'Tool length', exact: true }).click();
+        await w.getByLabel('Sensor Z').fill('-30');
         const start = w.getByRole('button', { name: 'Start', exact: true });
         const cancel = w.locator('#tl-cancel');
         assert.equal(await cancel.isDisabled(), true);

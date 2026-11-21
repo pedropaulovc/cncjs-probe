@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     STORAGE_KEY,
     defaultSettings,
+    checkSafeZ,
     effectiveControllerSettings,
     loadSettings,
     saveSettings,
@@ -129,16 +130,58 @@ test('removing the last tool falls back to Auto only where the plate offers it',
 
 test('tool length travels at the Safe Z setting, kept out of the homing pull-off', () => {
     const settings = { ...defaultSettings(), toolChangePosition: { x: -10, y: -20, z: -30 } };
+    setMachinePosition({ x: '-1.000', y: '-1.000', z: '-1.000' });
     // gSender would send -0.5 here: an inch value run as mm
-    setControllerSettings({ settings: { $13: '1', $132: '356' } });
+    setControllerSettings({ settings: { $13: '1', $22: '1', $132: '356' } });
     assert.ok(toolLengthRoutine(settings).start.includes('%global.toolchange.Z_SAFE_HEIGHT=-10'));
-    setControllerSettings({ settings: { $13: '0', $132: '356' } });
+    setControllerSettings({ settings: { $13: '0', $22: '1', $132: '356' } });
     assert.ok(toolLengthRoutine({ ...settings, safeZ: -25 }).start.includes('%global.toolchange.Z_SAFE_HEIGHT=-25'));
     // Grbl's default 1 mm pull-off without $27, the reported one with it
     assert.match(toolLengthRoutine({ ...settings, safeZ: -0.5 }).reason, /pull-off \(1 mm\)/);
-    setControllerSettings({ settings: { $132: '356', $27: '3' } });
+    setControllerSettings({ settings: { $22: '1', $132: '356', $27: '3' } });
     assert.match(toolLengthRoutine({ ...settings, safeZ: -2 }).reason, /pull-off \(3 mm\)/);
-    assert.equal(toolLengthRoutine({ ...settings, safeZ: -3 }).reason, undefined);
+    assert.deepEqual([toolLengthRoutine({ ...settings, safeZ: -3 }).reason, toolLengthRoutine({ ...settings, safeZ: -3 }).note], [undefined, undefined]);
+});
+
+test('Safe Z stays above the sensor and inside Z travel', () => {
+    const homed = { $22: '1', $132: '100' };
+    // at or below the sensor approach height, with 2 mm of clearance
+    assert.match(checkSafeZ(-60, -30, homed, -1).reason, /2 mm above the sensor Z \(-30\)/);
+    assert.match(checkSafeZ(-29, -30, homed, -1).reason, /above the sensor/);
+    assert.deepEqual(checkSafeZ(-28, -30, homed, -1), {});
+    // past the bottom of travel (soft limit ALARM:2)
+    assert.match(checkSafeZ(-101, -150, homed, -1).reason, /within Z travel \(\$132\): at or above -100/);
+    assert.deepEqual(checkSafeZ(-100, -150, homed, -1), {});
+    // Z homing down ($23 bit 2): the switch is at -$132, Z0 the top of travel
+    const down = { ...homed, $23: '4', $27: '2' };
+    assert.deepEqual(checkSafeZ(-0.5, -50, down, -98), {});
+    assert.match(checkSafeZ(1, -50, down, -98).reason, /at or below machine Z0/);
+    assert.match(checkSafeZ(-99, -150, down, -98).reason, /pull-off \(2 mm\) above the bottom of Z travel \(-100\)/);
+    assert.deepEqual(checkSafeZ(-98, -150, down, -98), {});
+    assert.match(checkSafeZ(Number.NaN, -30, homed, -1).reason, /Set Safe Z/);
+});
+
+test('Safe Z skips the homing checks without homing or with positive machine Z', () => {
+    // homing off or unreported: Z0 is wherever Z was at power-on
+    for (const reported of [{ $22: '0', $132: '100' }, { $132: '100' }]) {
+        const result = checkSafeZ(-0.5, -30, reported, -1);
+        assert.equal(result.reason, undefined);
+        assert.match(result.note, /Homing is off or not reported/);
+        assert.match(checkSafeZ(-40, -30, reported, -1).reason, /above the sensor/);
+    }
+    // FluidNC with mpos_mm above zero: travel 0..+100, so +90 is a valid height
+    for (const [sensorZ, mposZ] of [[20, 95], [20, Number.NaN], [-5, 3]]) {
+        const result = checkSafeZ(90, sensorZ, { $22: '1', $132: '100' }, mposZ);
+        assert.equal(result.reason, undefined);
+        assert.match(result.note, /Machine Z is positive/);
+    }
+    // the note reaches the routine
+    const settings = { ...defaultSettings(), safeZ: 90, toolChangePosition: { x: 10, y: 10, z: 20 } };
+    setControllerSettings({ settings: { $22: '1', $132: '356' } });
+    setMachinePosition({ x: '5.000', y: '5.000', z: '95.000' });
+    const routine = toolLengthRoutine(settings);
+    assert.ok(routine.start.includes('%global.toolchange.Z_SAFE_HEIGHT=90'));
+    assert.match(routine.note, /Machine Z is positive/);
 });
 
 test('FluidNC 4.x settings from CNCjs drive homing, soft limits and tool length', () => {

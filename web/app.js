@@ -408,7 +408,7 @@ function renderCode(zero, toolLength) {
         setText($('gcode'), zero.lines ? zero.lines.join('\n') : '');
         return;
     }
-    setText($('code-note'), toolLength.reason ?? 'Each step sends its block. G-code expressions are evaluated by CNCjs.');
+    setText($('code-note'), toolLength.reason ?? ['Each step sends its block. G-code expressions are evaluated by CNCjs.', toolLength.note].filter(Boolean).join(' '));
     if (toolLength.reason) {
         setText($('gcode'), '');
         return;
