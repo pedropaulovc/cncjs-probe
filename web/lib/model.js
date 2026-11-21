@@ -201,19 +201,26 @@ const HOMING_ENABLED = 1;
 const Z_HOMES_DOWN = 4;
 const SET_SENSOR = 'Jog the tool tip just above the sensor and use "Use current position".';
 
+// -> { reason } when Safe Z is not SENSOR_CLEARANCE above the sensor, else null.
+// An unset sensor (still at its default Z0) is the usual cause, so point there too.
+const sensorClearance = (safeZ, sensorZ) => {
+    if (safeZ >= sensorZ + SENSOR_CLEARANCE) return null;
+    return { reason: `Safe Z must be at least ${SENSOR_CLEARANCE} mm above the sensor Z (${sensorZ}), or the tool would cross into the sensor. If Sensor Z is not where the sensor is: ${SET_SENSOR}` };
+};
+
 // -> { reason } when Safe Z or the sensor Z is unsafe, { note } when only the
 // sensor clearance could be checked, {} otherwise. zRange is the operator's
-// 'grbl' | 'other': with 'grbl' and homing on, machine Z is Grbl's homed
-// [-$132, 0] with the Z switch at 0 (homing up, the default) or at -$132
-// (homing down, $23 bit 2), and homing leaves Z the pull-off ($27) away from it.
+// 'grbl' | 'other'; anything but 'other' gets the Grbl checks. On Grbl with
+// homing on, machine Z is the homed [-$132, 0] with the Z switch at 0 (homing
+// up, the default) or at -$132 (homing down, $23 bit 2), and homing leaves Z
+// the pull-off ($27) away from it.
 export const checkSafeZ = (safeZ, sensorZ, reported, zRange) => {
     if (!Number.isFinite(safeZ)) return { reason: 'Set Safe Z.' };
-    const homing = reported.$22 !== undefined && (Number(reported.$22) & HOMING_ENABLED) !== 0;
-    if (zRange === 'grbl' && homing) return checkHomedSafeZ(safeZ, sensorZ, reported);
-    if (safeZ < sensorZ + SENSOR_CLEARANCE) {
-        return { reason: `Safe Z must be at least ${SENSOR_CLEARANCE} mm above the sensor Z (${sensorZ}), or the tool would cross into the sensor.` };
-    }
-    if (zRange !== 'grbl') {
+    const homing = (Number(reported.$22) & HOMING_ENABLED) !== 0;
+    if (zRange !== 'other' && homing) return checkHomedSafeZ(safeZ, sensorZ, reported);
+    const clearance = sensorClearance(safeZ, sensorZ);
+    if (clearance) return clearance;
+    if (zRange === 'other') {
         return { note: 'Machine Z range is set to Other: Safe Z is only checked against the sensor, not against the Z switch or Z travel.' };
     }
     return { note: 'Homing is off or not reported ($22), so machine Z0 is not the Z switch: Safe Z is only checked against the sensor, not against the Z switch or Z travel.' };
@@ -225,13 +232,16 @@ const checkHomedSafeZ = (safeZ, sensorZ, reported) => {
     const travel = Number(reported.$132);
     const homesDown = (Number(reported.$23) & Z_HOMES_DOWN) !== 0;
     const top = homesDown ? 0 : -pullOff;
-    // no Safe Z fits between the sensor and the top: the sensor Z is what is wrong
+    // no Safe Z fits between the sensor and the top: the sensor Z is what is wrong,
+    // or, when it is positive, the machine's Z range is not Grbl's
     if (sensorZ + SENSOR_CLEARANCE > top) {
-        return { reason: `Sensor Z (${sensorZ}) leaves no room for Safe Z: it must be at least ${SENSOR_CLEARANCE} mm below ${top} on this homed machine. ${SET_SENSOR}` };
+        const positive = sensorZ > 0
+            ? ' A positive sensor Z means this machine\'s Z range is not Grbl\'s (e.g. FluidNC with a positive mpos_mm): if so, set Machine Z range to Other.'
+            : '';
+        return { reason: `Sensor Z (${sensorZ}) leaves no room for Safe Z: it must be at least ${SENSOR_CLEARANCE} mm below ${top} on this homed machine. ${SET_SENSOR}${positive}` };
     }
-    if (safeZ < sensorZ + SENSOR_CLEARANCE) {
-        return { reason: `Safe Z must be at least ${SENSOR_CLEARANCE} mm above the sensor Z (${sensorZ}), or the tool would cross into the sensor.` };
-    }
+    const clearance = sensorClearance(safeZ, sensorZ);
+    if (clearance) return clearance;
     if (!homesDown && safeZ > top) {
         return { reason: `Safe Z must be at least the homing pull-off (${pullOff} mm) below machine Z0, e.g. ${DEFAULT_SAFE_Z}.` };
     }

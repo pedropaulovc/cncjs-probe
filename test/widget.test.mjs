@@ -132,11 +132,20 @@ const assertSettingsMarker = async (frame) => {
     assert.equal((await summaryMarker(frame)).outline, 'solid');
 };
 
-test('the Settings summary shows a disclosure marker with the stand-in styles and with CNCjs\'s Bootstrap', async () => {
+// The tool length grid's select matches its inputs, not .form-control's 34 / 30 px.
+const assertFieldHeights = async (frame) => {
+    await frame.getByRole('button', { name: 'Tool length', exact: true }).click();
+    const height = (selector) => frame.locator(selector).evaluate((el) => el.getBoundingClientRect().height);
+    assert.equal(await height('#tl-safe'), 26);
+    assert.equal(await height('#tl-zrange'), 26);
+};
+
+test('the Settings summary shows a disclosure marker, and grid fields line up, with the stand-in styles and with CNCjs\'s Bootstrap', async () => {
     const alone = await standalone();
     try {
         assert.equal(await alone.page.locator('#cncjs-fallback').count(), 1);
         await assertSettingsMarker(alone.page);
+        await assertFieldHeights(alone.page);
         assert.deepEqual(alone.errors, []);
     } finally {
         await alone.ctx.close();
@@ -145,6 +154,7 @@ test('the Settings summary shows a disclosure marker with the stand-in styles an
     try {
         await w.locator('#cncjs-fallback').waitFor({ state: 'detached' });
         await assertSettingsMarker(w);
+        await assertFieldHeights(w);
         assert.deepEqual(errors, []);
     } finally {
         await ctx.close();

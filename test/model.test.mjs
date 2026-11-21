@@ -176,10 +176,27 @@ test('on a homed Grbl range the sensor Z is blamed when no Safe Z can fit', () =
         const result = checkSafeZ(-10, sensorZ, homed, 'grbl');
         assert.match(result.reason, new RegExp(`^Sensor Z \\(${sensorZ}\\) leaves no room for Safe Z`));
         assert.match(result.reason, /Use current position/);
+        // only a positive sensor Z points at the Machine Z range way out
+        assert.equal(/set Machine Z range to Other/.test(result.reason), sensorZ > 0, `sensor Z ${sensorZ}`);
         // whatever Safe Z the operator tries, Sensor Z stays the problem
         assert.match(checkSafeZ(sensorZ + 5, sensorZ, homed, 'grbl').reason, /^Sensor Z/);
     }
     assert.deepEqual(checkSafeZ(-1, -3, homed, 'grbl'), {});
+});
+
+test('a missing or unknown Machine Z range keeps the Grbl checks', () => {
+    for (const zRange of [undefined, null, '', 'Grbl', 'bogus']) {
+        assert.match(checkSafeZ(-0.5, -30, { $22: '1' }, zRange).reason, /pull-off \(1 mm\)/, `zRange=${zRange}`);
+    }
+});
+
+test('without the homed checks, the clearance reason also points at an unset Sensor Z', () => {
+    // the default sensor at Z0 with homing off: raising Safe Z is not the fix
+    for (const [reported, zRange] of [[{ $22: '0' }, 'grbl'], [{}, 'grbl'], [{ $22: '1' }, 'other']]) {
+        const { reason } = checkSafeZ(-10, 0, reported, zRange);
+        assert.match(reason, /2 mm above the sensor Z \(0\)/);
+        assert.match(reason, /If Sensor Z is not where the sensor is: Jog the tool tip just above the sensor and use "Use current position"/);
+    }
 });
 
 test('Safe Z checks only the sensor without homing or when the operator picks another Z range', () => {

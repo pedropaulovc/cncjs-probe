@@ -333,7 +333,7 @@ function renderToolLength(routine) {
         input.value = Number.isFinite(v) ? String(v) : '';
         input.removeAttribute('aria-invalid');
     }
-    if (document.activeElement !== $('tl-zrange')) $('tl-zrange').value = settings.zRange;
+    if (document.activeElement !== $('tl-zrange')) $('tl-zrange').value = settings.zRange === 'other' ? 'other' : 'grbl';
     const ok = clickable() && !routine.reason;
     $('tl-here').disabled = machine.link !== 'joined' || !machine.mpos || machine.mpos.z === undefined;
     $('tl-start').disabled = !ok || ui.toolLength !== 'ready';
