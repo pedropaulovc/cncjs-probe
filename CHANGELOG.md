@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-20
+
+- Tool length mode hides the touch plate selector and everything that only
+  applies to Zero: the Z/XYZ/XY/X/Y routines, corner, plate image, Probe button
+  and the plate-only settings (block/puck/AutoZero/BitZero thicknesses, Z offset,
+  tip diameter, XY settings). Its Settings list keeps what the wizard reads:
+  Fast find, Slow find, Retraction and Z max travel. A help line says it targets
+  a fixed toolsetter at the Sensor position and points to Zero → Z Probe for
+  setting work Z from a plate. Switching back to Zero restores everything.
+- Stop now shows in Tool length mode too while CNCjs's feeder is running a
+  routine; it used to sit in the Zero section only.
+
 ## [0.1.1] - 2026-11-20
 
 - Safe Z must clear the sensor Z by 2 mm and, on a homed Grbl range, stay inside
