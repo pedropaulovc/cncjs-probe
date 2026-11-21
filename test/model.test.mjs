@@ -146,42 +146,66 @@ test('tool length travels at the Safe Z setting, kept out of the homing pull-off
 test('Safe Z stays above the sensor and inside Z travel', () => {
     const homed = { $22: '1', $132: '100' };
     // at or below the sensor approach height, with 2 mm of clearance
-    assert.match(checkSafeZ(-60, -30, homed, -1).reason, /2 mm above the sensor Z \(-30\)/);
-    assert.match(checkSafeZ(-29, -30, homed, -1).reason, /above the sensor/);
-    assert.deepEqual(checkSafeZ(-28, -30, homed, -1), {});
+    assert.match(checkSafeZ(-60, -30, homed, 'grbl').reason, /Safe Z must be at least 2 mm above the sensor Z \(-30\)/);
+    assert.match(checkSafeZ(-29, -30, homed, 'grbl').reason, /above the sensor/);
+    assert.deepEqual(checkSafeZ(-28, -30, homed, 'grbl'), {});
     // past the bottom of travel (soft limit ALARM:2)
-    assert.match(checkSafeZ(-101, -150, homed, -1).reason, /within Z travel \(\$132\): at or above -100/);
-    assert.deepEqual(checkSafeZ(-100, -150, homed, -1), {});
+    assert.match(checkSafeZ(-101, -150, homed, 'grbl').reason, /within Z travel \(\$132\): at or above -100/);
+    assert.deepEqual(checkSafeZ(-100, -150, homed, 'grbl'), {});
     // Z homing down ($23 bit 2): the switch is at -$132, Z0 the top of travel
     const down = { ...homed, $23: '4', $27: '2' };
-    assert.deepEqual(checkSafeZ(-0.5, -50, down, -98), {});
-    assert.match(checkSafeZ(1, -50, down, -98).reason, /at or below machine Z0/);
-    assert.match(checkSafeZ(-99, -150, down, -98).reason, /pull-off \(2 mm\) above the bottom of Z travel \(-100\)/);
-    assert.deepEqual(checkSafeZ(-98, -150, down, -98), {});
-    assert.match(checkSafeZ(Number.NaN, -30, homed, -1).reason, /Set Safe Z/);
+    assert.deepEqual(checkSafeZ(-0.5, -50, down, 'grbl'), {});
+    assert.match(checkSafeZ(1, -50, down, 'grbl').reason, /at or below machine Z0/);
+    assert.match(checkSafeZ(-99, -150, down, 'grbl').reason, /pull-off \(2 mm\) above the bottom of Z travel \(-100\)/);
+    assert.deepEqual(checkSafeZ(-98, -150, down, 'grbl'), {});
+    assert.match(checkSafeZ(Number.NaN, -30, homed, 'grbl').reason, /Set Safe Z/);
 });
 
-test('Safe Z skips the homing checks without homing or with positive machine Z', () => {
+test('grblHAL\'s $22 bitmask counts as homing on when bit 0 is set', () => {
+    for (const $22 of ['1', '3', '5', '7']) {
+        assert.match(checkSafeZ(-0.5, -30, { $22, $27: '1' }, 'grbl').reason, /pull-off \(1 mm\)/, `$22=${$22}`);
+        assert.match(checkSafeZ(5, -30, { $22, $27: '1' }, 'grbl').reason, /pull-off/, `$22=${$22}`);
+    }
+    for (const $22 of ['0', '2', '4']) assert.match(checkSafeZ(-0.5, -30, { $22 }, 'grbl').note, /Homing is off/, `$22=${$22}`);
+});
+
+test('on a homed Grbl range the sensor Z is blamed when no Safe Z can fit', () => {
+    const homed = { $22: '1', $132: '100' };
+    // the default sensor at Z0, a sign slip (+30), and one inside the pull-off
+    for (const sensorZ of [0, 30, -2]) {
+        const result = checkSafeZ(-10, sensorZ, homed, 'grbl');
+        assert.match(result.reason, new RegExp(`^Sensor Z \\(${sensorZ}\\) leaves no room for Safe Z`));
+        assert.match(result.reason, /Use current position/);
+        // whatever Safe Z the operator tries, Sensor Z stays the problem
+        assert.match(checkSafeZ(sensorZ + 5, sensorZ, homed, 'grbl').reason, /^Sensor Z/);
+    }
+    assert.deepEqual(checkSafeZ(-1, -3, homed, 'grbl'), {});
+});
+
+test('Safe Z checks only the sensor without homing or when the operator picks another Z range', () => {
     // homing off or unreported: Z0 is wherever Z was at power-on
     for (const reported of [{ $22: '0', $132: '100' }, { $132: '100' }]) {
-        const result = checkSafeZ(-0.5, -30, reported, -1);
+        const result = checkSafeZ(-0.5, -30, reported, 'grbl');
         assert.equal(result.reason, undefined);
         assert.match(result.note, /Homing is off or not reported/);
-        assert.match(checkSafeZ(-40, -30, reported, -1).reason, /above the sensor/);
+        assert.match(checkSafeZ(-40, -30, reported, 'grbl').reason, /above the sensor/);
     }
     // FluidNC with mpos_mm above zero: travel 0..+100, so +90 is a valid height
-    for (const [sensorZ, mposZ] of [[20, 95], [20, Number.NaN], [-5, 3]]) {
-        const result = checkSafeZ(90, sensorZ, { $22: '1', $132: '100' }, mposZ);
-        assert.equal(result.reason, undefined);
-        assert.match(result.note, /Machine Z is positive/);
-    }
-    // the note reaches the routine
-    const settings = { ...defaultSettings(), safeZ: 90, toolChangePosition: { x: 10, y: 10, z: 20 } };
+    const result = checkSafeZ(90, 20, { $22: '1', $132: '100' }, 'other');
+    assert.equal(result.reason, undefined);
+    assert.match(result.note, /set to Other/);
+    assert.match(checkSafeZ(21, 20, { $22: '1', $132: '100' }, 'other').reason, /above the sensor/);
+    // the verdict follows settings only, not where the head is
+    const settings = { ...defaultSettings(), safeZ: 90, zRange: 'other', toolChangePosition: { x: 10, y: 10, z: 20 } };
     setControllerSettings({ settings: { $22: '1', $132: '356' } });
-    setMachinePosition({ x: '5.000', y: '5.000', z: '95.000' });
-    const routine = toolLengthRoutine(settings);
-    assert.ok(routine.start.includes('%global.toolchange.Z_SAFE_HEIGHT=90'));
-    assert.match(routine.note, /Machine Z is positive/);
+    const verdicts = ['95.000', '-50.000'].map((z) => {
+        setMachinePosition({ x: '5.000', y: '5.000', z });
+        const routine = toolLengthRoutine(settings);
+        return [routine.reason, routine.note];
+    });
+    assert.deepEqual(verdicts[0], verdicts[1]);
+    assert.match(verdicts[0][1], /set to Other/);
+    assert.match(toolLengthRoutine({ ...settings, zRange: 'grbl' }).reason, /^Sensor Z \(20\)/);
 });
 
 test('FluidNC 4.x settings from CNCjs drive homing, soft limits and tool length', () => {

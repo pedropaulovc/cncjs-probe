@@ -44,6 +44,9 @@ export const defaultSettings = () => ({
     zMaxTravel: null,
     // Machine Z (mm) the tool length wizard travels at.
     safeZ: DEFAULT_SAFE_Z,
+    // 'grbl': homed machine Z runs from -$132 up to 0, as Grbl keeps it, so Safe Z is
+    // checked against the Z switch and travel. 'other': only against the sensor.
+    zRange: 'grbl',
     // Units of the preview while no machine reports its own.
     previewUnits: METRIC_UNITS,
 });
@@ -189,35 +192,50 @@ export const toolchangeContext = (parserstate) => ({
 export const DEFAULT_SAFE_Z = -10;
 // Grbl's default homing pull-off ($27) when the controller does not report one.
 const DEFAULT_PULL_OFF = 1;
-// Room between Safe Z and the sensor approach height; gSender's margin in
-// calculateMaxZProbeDistance.
+// This widget's own rule (gSender does not check Safe Z against the sensor):
+// room between Safe Z and the sensor approach height.
 const SENSOR_CLEARANCE = 2;
+// $22 bit 0 enables homing (Grbl uses 0/1; grblHAL adds more bits).
+const HOMING_ENABLED = 1;
 // $23 bit set when Z homes toward -Z.
 const Z_HOMES_DOWN = 4;
+const SET_SENSOR = 'Jog the tool tip just above the sensor and use "Use current position".';
 
-// -> { reason } when Safe Z is unsafe, { note } when only the sensor clearance
-// could be checked, {} otherwise. Once homed, Grbl keeps machine Z in
+// -> { reason } when Safe Z or the sensor Z is unsafe, { note } when only the
+// sensor clearance could be checked, {} otherwise. zRange is the operator's
+// 'grbl' | 'other': with 'grbl' and homing on, machine Z is Grbl's homed
 // [-$132, 0] with the Z switch at 0 (homing up, the default) or at -$132
-// (homing down, $23 bit 2), and leaves Z the pull-off ($27) away from it.
-export const checkSafeZ = (safeZ, sensorZ, reported, mposZ) => {
+// (homing down, $23 bit 2), and homing leaves Z the pull-off ($27) away from it.
+export const checkSafeZ = (safeZ, sensorZ, reported, zRange) => {
     if (!Number.isFinite(safeZ)) return { reason: 'Set Safe Z.' };
+    const homing = reported.$22 !== undefined && (Number(reported.$22) & HOMING_ENABLED) !== 0;
+    if (zRange === 'grbl' && homing) return checkHomedSafeZ(safeZ, sensorZ, reported);
     if (safeZ < sensorZ + SENSOR_CLEARANCE) {
         return { reason: `Safe Z must be at least ${SENSOR_CLEARANCE} mm above the sensor Z (${sensorZ}), or the tool would cross into the sensor.` };
     }
-    if (reported.$22 !== '1') {
-        return { note: 'Homing is off or not reported ($22), so machine Z0 is not the Z switch: Safe Z is only checked against the sensor.' };
+    if (zRange !== 'grbl') {
+        return { note: 'Machine Z range is set to Other: Safe Z is only checked against the sensor, not against the Z switch or Z travel.' };
     }
-    if (sensorZ > 0 || mposZ > 0) {
-        return { note: 'Machine Z is positive here, unlike Grbl\'s homed range, so the Z switch position is unknown: Safe Z is only checked against the sensor.' };
-    }
+    return { note: 'Homing is off or not reported ($22), so machine Z0 is not the Z switch: Safe Z is only checked against the sensor, not against the Z switch or Z travel.' };
+};
+
+const checkHomedSafeZ = (safeZ, sensorZ, reported) => {
     const reportedPullOff = Number(reported.$27);
     const pullOff = reported.$27 !== undefined && Number.isFinite(reportedPullOff) ? reportedPullOff : DEFAULT_PULL_OFF;
     const travel = Number(reported.$132);
     const homesDown = (Number(reported.$23) & Z_HOMES_DOWN) !== 0;
-    if (!homesDown && safeZ > -pullOff) {
+    const top = homesDown ? 0 : -pullOff;
+    // no Safe Z fits between the sensor and the top: the sensor Z is what is wrong
+    if (sensorZ + SENSOR_CLEARANCE > top) {
+        return { reason: `Sensor Z (${sensorZ}) leaves no room for Safe Z: it must be at least ${SENSOR_CLEARANCE} mm below ${top} on this homed machine. ${SET_SENSOR}` };
+    }
+    if (safeZ < sensorZ + SENSOR_CLEARANCE) {
+        return { reason: `Safe Z must be at least ${SENSOR_CLEARANCE} mm above the sensor Z (${sensorZ}), or the tool would cross into the sensor.` };
+    }
+    if (!homesDown && safeZ > top) {
         return { reason: `Safe Z must be at least the homing pull-off (${pullOff} mm) below machine Z0, e.g. ${DEFAULT_SAFE_Z}.` };
     }
-    if (homesDown && safeZ > 0) return { reason: 'Safe Z must be at or below machine Z0, the top of Z travel.' };
+    if (homesDown && safeZ > top) return { reason: 'Safe Z must be at or below machine Z0, the top of Z travel.' };
     if (!Number.isFinite(travel)) return {};
     if (!homesDown && safeZ < -travel) return { reason: `Safe Z must be within Z travel ($132): at or above ${-travel}.` };
     if (homesDown && safeZ < -travel + pullOff) {
@@ -246,9 +264,8 @@ export const toolLengthRoutine = (settings) => {
     if (!Number.isFinite(value) || value <= 0) {
         return { reason: 'No room to probe: Z max travel ($132) is unknown or the sensor Z is past it. Set Z max travel under Settings.' };
     }
-    const state = getState();
-    const reported = get(state, 'controller.settings.settings', {});
-    const safeZ = checkSafeZ(settings.safeZ, position.z, reported, Number(get(state, 'controller.mpos.z')));
+    const reported = get(getState(), 'controller.settings.settings', {});
+    const safeZ = checkSafeZ(settings.safeZ, position.z, reported, settings.zRange);
     if (safeZ.reason) return safeZ;
     // the wizard keeps positions for G21 moves
     const $13 = reported.$13 ?? '0';

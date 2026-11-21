@@ -75,7 +75,14 @@ header h1 { margin: 0; font-size: 13px; font-weight: bold; line-height: 1.4; }
 .fields .unit { color: var(--ink-2); }
 .fields input[aria-invalid="true"] { border-color: #a94442; background: #f2dede; }
 .fields input { text-align: right; font-family: var(--font-num); height: 26px; padding: 2px 6px; }
-details > summary { cursor: pointer; font-weight: bold; font-size: 13px; }
+/* Bootstrap 3's normalize sets summary { display: block }, which drops the
+   browser's disclosure triangle; draw our own, from borders so no font is needed. */
+details > summary { display: flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; font-weight: bold; font-size: 13px; border-radius: 3px; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before { content: ''; flex: none; width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px; border-color: transparent transparent transparent currentColor; transition: transform .15s; }
+details[open] > summary::before { transform: rotate(90deg); }
+details > summary:hover { color: #337ab7; }
+details > summary:focus-visible { outline: 2px solid #66afe9; outline-offset: 2px; }
 .diam { display: flex; gap: 4px; }
 .diam .form-control { height: 28px; padding: 2px 6px; }
 .code pre { max-height: 220px; margin: 6px 0 0; overflow: auto; padding: 6px 8px; font-size: 11.5px; line-height: 1.45; white-space: pre; }
@@ -166,7 +173,8 @@ details > summary { cursor: pointer; font-weight: bold; font-size: 13px; }
       <label for="tl-x">Sensor X <span class="unit">(mm, machine)</span></label><input id="tl-x" class="form-control" inputmode="decimal" data-tl="x">
       <label for="tl-y">Sensor Y <span class="unit">(mm, machine)</span></label><input id="tl-y" class="form-control" inputmode="decimal" data-tl="y">
       <label for="tl-z">Sensor Z <span class="unit">(mm, machine)</span></label><input id="tl-z" class="form-control" inputmode="decimal" data-tl="z">
-      <label for="tl-safe" title="Machine Z the wizard travels at. At least 2 mm above the sensor Z; with homing on and Grbl's machine range, also clear of the Z switch by the homing pull-off and inside Z travel. gSender uses -10 mm (and -0.5, read as mm, when Grbl reports inches).">Safe Z <span class="unit">(mm, machine)</span></label><input id="tl-safe" class="form-control" inputmode="decimal" data-tl="safeZ">
+      <label for="tl-safe" title="Machine Z the wizard travels at. At least 2 mm above the sensor Z; with homing on and a Grbl Z range, also clear of the Z switch by the homing pull-off and inside Z travel. gSender uses -10 mm (and -0.5, read as mm, when Grbl reports inches).">Safe Z <span class="unit">(mm, machine)</span></label><input id="tl-safe" class="form-control" inputmode="decimal" data-tl="safeZ">
+      <label for="tl-zrange" title="Grbl: once homed, machine Z runs from -$132 up to 0, and Safe Z is checked against the Z switch and Z travel. Other (e.g. FluidNC with a positive mpos_mm): Safe Z is only checked against the sensor.">Machine Z range</label><select id="tl-zrange" class="form-control"><option value="grbl">Grbl</option><option value="other">Other</option></select>
     </div>
     <div class="row" style="margin-top:6px">
       <button type="button" class="btn btn-default btn-sm" id="tl-here">Use current position</button>

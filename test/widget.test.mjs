@@ -7,6 +7,7 @@ import { chromium } from 'playwright';
 
 const webDir = fileURLToPath(new URL('../web/', import.meta.url));
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.gif': 'image/gif' };
+const bootstrapCss = readFile(fileURLToPath(new URL('../node_modules/bootstrap/dist/css/bootstrap.css', import.meta.url)), 'utf8');
 let browser;
 
 before(async () => {
@@ -48,7 +49,8 @@ const serveWidget = async (ctx, controllers) => {
         }
         if (url.pathname === '/socket.io/socket.io.js') return route.fulfill({ contentType: 'text/javascript', body: FAKE_SOCKET_IO });
         if (url.pathname === '/api/controllers') return route.fulfill({ contentType: 'application/json', body: JSON.stringify(controllers()) });
-        if (url.pathname === '/main.css') return route.fulfill({ contentType: 'text/css', body: 'body{min-width:960px}' });
+        // CNCjs 1.11.5 bundles Bootstrap 3.3.7 in its main.css
+        if (url.pathname === '/main.css') return route.fulfill({ contentType: 'text/css', body: `${await bootstrapCss}\nbody{min-width:960px}` });
         return route.fulfill({ contentType: 'text/html', body: `<!doctype html><head><link rel="stylesheet" href="/main.css"></head><body><iframe name="w"
           sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
           style="width:338px;height:1400px" src="${url.searchParams.get('widget') ?? 'http://cncjs.test'}/probe/?token=tok123"></iframe><script>
@@ -97,6 +99,57 @@ async function embedded({ settings = { settings: { $10: '1' } }, widget } = {}) 
     }
     return { ctx, host, w, fire, emitted, errors };
 }
+
+const summaryMarker = (frame) => frame.locator('#settings > summary').evaluate((s) => {
+    const before = getComputedStyle(s, '::before');
+    const own = getComputedStyle(s);
+    return {
+        cursor: own.cursor,
+        nativeMarker: own.listStyleType,
+        markerWidth: before.borderLeftWidth,
+        markerColor: before.borderLeftColor,
+        markerTransform: before.transform,
+        outline: own.outlineStyle,
+    };
+});
+
+// Bootstrap 3's normalize (in CNCjs's main.css) sets summary { display: block },
+// which hides the browser's own disclosure triangle.
+const assertSettingsMarker = async (frame) => {
+    const summary = frame.locator('#settings > summary');
+    const closed = await summaryMarker(frame);
+    assert.equal(closed.cursor, 'pointer');
+    assert.equal(closed.nativeMarker, 'none');
+    assert.equal(closed.markerWidth, '6px');
+    assert.notEqual(closed.markerColor, 'rgba(0, 0, 0, 0)');
+    assert.equal(closed.markerTransform, 'none');
+    await summary.click();
+    assert.notEqual((await summaryMarker(frame)).markerTransform, 'none');
+    // keyboard focus shows an outline
+    await summary.press('Shift+Tab');
+    await frame.locator(':focus').press('Tab');
+    assert.equal(await summary.evaluate((s) => s === document.activeElement), true);
+    assert.equal((await summaryMarker(frame)).outline, 'solid');
+};
+
+test('the Settings summary shows a disclosure marker with the stand-in styles and with CNCjs\'s Bootstrap', async () => {
+    const alone = await standalone();
+    try {
+        assert.equal(await alone.page.locator('#cncjs-fallback').count(), 1);
+        await assertSettingsMarker(alone.page);
+        assert.deepEqual(alone.errors, []);
+    } finally {
+        await alone.ctx.close();
+    }
+    const { ctx, w, errors } = await embedded();
+    try {
+        await w.locator('#cncjs-fallback').waitFor({ state: 'detached' });
+        await assertSettingsMarker(w);
+        assert.deepEqual(errors, []);
+    } finally {
+        await ctx.close();
+    }
+});
 
 test('standalone, the page loads with a preview and Run disabled', async () => {
     const { ctx, page, errors } = await standalone();
@@ -222,6 +275,10 @@ test('embedded with FluidNC 4.x settings, tool length uses $132 and a visible Sa
         assert.equal(await start.isDisabled(), true);
         await safeZ.fill('-20');
         assert.match(await code(), /%global\.toolchange\.Z_SAFE_HEIGHT=-20\n/);
+        assert.equal(await start.isDisabled(), false);
+        // with the switch checks skipped, the warning sits next to the wizard buttons
+        await w.getByLabel('Machine Z range').selectOption('other');
+        assert.match(await w.locator('#tl-note').innerText(), /set to Other: Safe Z is only checked against the sensor/);
         assert.equal(await start.isDisabled(), false);
         assert.deepEqual(errors, []);
     } finally {

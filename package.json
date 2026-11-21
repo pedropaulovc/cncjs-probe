@@ -39,6 +39,7 @@
   },
   "type": "module",
   "devDependencies": {
+    "bootstrap": "3.3.7",
     "ensure-type": "1.5.1",
     "esbuild": "0.28.2",
     "escodegen": "1.11.1",
