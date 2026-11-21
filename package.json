@@ -1,6 +1,6 @@
 {
   "name": "cncjs-probe",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Touch plate and tool length probing CNCjs custom widget, ported from gSender's Probe tool, that counts a FluidNC toolsetter (Pn:T) as a touch.",
   "keywords": [
     "cncjs",

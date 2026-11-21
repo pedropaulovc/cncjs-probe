@@ -2,16 +2,19 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-20
+
 - Safe Z must clear the sensor Z by 2 mm and, on a homed Grbl range, stay inside
   Z travel (`$132`); the pull-off check follows `$23`'s Z homing direction and
   applies when `$22` bit 0 enables homing (grblHAL's `$22=3/5/7` included). A
   Machine Z range setting (Grbl / Other) replaces guessing from positions: with
   homing off or Other, only the sensor clearance is checked, and a note next to
   the wizard buttons says so. A sensor Z with no room above it is reported as a
-  sensor problem.
+  sensor problem, and a positive one points at Machine Z range.
 - The Settings and G-code sections show a disclosure triangle, a pointer cursor
   and a keyboard focus outline under CNCjs's stylesheet, whose Bootstrap 3
-  normalize hides the browser's own marker.
+  normalize hides the browser's own marker. The Machine Z range select is as
+  tall as the fields beside it.
 - BitZero on a Grbl reporting inches sets the machine's units once at the end
   instead of capturing them at run time; G20 machines no longer get a second
   `G20`.
